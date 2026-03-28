@@ -1,0 +1,185 @@
+@import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600&display=swap');
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  font-family: 'Sarabun', sans-serif;
+  background: #fff;
+}
+
+/* ── Splash ── */
+.splash {
+  height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: #fce8ef;
+  cursor: pointer;
+}
+
+.splash img {
+  width: 130px;
+  height: 130px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.splash h1 { font-size: 24px; font-weight: 600; }
+.splash p  { font-size: 14px; color: #888; }
+
+/* ── Chat ── */
+.chat {
+  height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+}
+
+/* ── Header ── */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 24px;
+  border-bottom: 1px solid #eee;
+  flex-shrink: 0;
+}
+
+.header img {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.header span { font-size: 15px; font-weight: 600; }
+
+/* ── Empty State (Claude/GPT style) ── */
+.empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 0 20px 80px;
+}
+
+.greeting {
+  font-size: 26px;
+  font-weight: 600;
+  color: #111;
+}
+
+/* ── Messages ── */
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  /* center content like Claude */
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.row.user { justify-content: flex-end; }
+
+.avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.bubble {
+  max-width: 75%;
+  padding: 10px 16px;
+  border-radius: 18px;
+  font-size: 14px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  background: #f3f4f6;
+  color: #111;
+}
+
+.row.user .bubble {
+  background: #fadadd;
+  border-bottom-right-radius: 4px;
+}
+
+.row.bot .bubble {
+  border-bottom-left-radius: 4px;
+}
+
+/* ── Input pinned bottom ── */
+.input-wrap {
+  flex-shrink: 0;
+  padding: 16px 20px 20px;
+  /* center like Claude */
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+  align-self: center;
+  width: 100%;
+}
+
+/* ── Input Bar ── */
+.input-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #eef3fb;
+  border: 1px solid #e0e7f0;
+  border-radius: 28px;
+  padding: 10px 10px 10px 20px;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.input-bar input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 15px;
+  font-family: 'Sarabun', sans-serif;
+  color: #111;
+}
+
+.input-bar input::placeholder { color: #aaa; }
+
+.input-bar button {
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 50%;
+  background: #f06292;
+  color: white;
+  font-size: 17px;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+.input-bar button:hover { background: #e91e63; }
