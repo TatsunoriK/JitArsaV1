@@ -1,0 +1,11 @@
+cd backend
+
+pip install fastapi uvicorn requests pandas \
+  langchain-core langchain-huggingface langchain-community langchain-text-splitters \
+  faiss-cpu sentence-transformers pythainlp
+
+ollama pull llama3.2
+
+ollama serve
+
+ยังไม่ได้ทำ history เรื่องค่าใช้จ่ายยังตอบไม่ดี ยังไม่ได้ทำเรื่องข้อจำกัดในการตอบ

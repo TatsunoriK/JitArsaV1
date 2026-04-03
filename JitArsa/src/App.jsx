@@ -1,106 +1,166 @@
-import { useState, useRef, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./App.css";
-
-const VOLUNTEER_DATA = `ขนิดอาสาสมัคร ที่เปิดรับอยู่
-
-1. อาสาช่วยเหลือสมัยด้วยนมน้ำ/ภาษามือ/Flash Card/ล่ามหูหนวก/ล่ามตาบอด/
-อาสาช่วยอยู่วันที่ 7-8 มิ.ย. 2569
-
-จาก มูลนิธิอาสาเพื่อสังคม
-
-📅 วันรับสมัครสิ้นสุด : 3/6/2026
-👥 จำนวนผู้รับสมัคร : 30
-💰 ค่าใช้จ่าย : 100-200 บาท
-📍 พื้นที่ปฏิบัติงาน : กรุงเทพมหานคร
-🕐 ระยะเวลากิจกรรม : 09:00-17:30 น.
-📧 ช่องทางการติดต่อ : Email volunteerservice@gmail.com
-🔗 Link : volunteerpoint.org/งานอาสาสมัครรับสมัคร-23/60195/`;
 
 export default function App() {
   const [screen, setScreen] = useState("splash");
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
   const bottomRef = useRef(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, loading]);
 
-  function sendMessage() {
-    if (!input.trim()) return;
+  async function sendMessage() {
+    const question = input.trim();
+    if (!question || loading) return;
 
-    // First message — bot greeting appears first
-    if (messages.length === 0) {
-      const botWelcome = { id: 0, role: "bot", text: "เริ่มต้นค้นหางานจิตอาสา" };
-      const userMsg = { id: Date.now(), role: "user", text: input };
-      setMessages([botWelcome, userMsg]);
-      setInput("");
-      setTimeout(() => {
-        setMessages((prev) => [
-          ...prev,
-          { id: Date.now() + 1, role: "bot", text: VOLUNTEER_DATA },
-        ]);
-      }, 600);
-      return;
+    const userMsg = {
+      id: Date.now(),
+      role: "user",
+      text: question,
+    };
+
+    const firstTime = messages.length === 0;
+
+    let updatedMessages;
+    if (firstTime) {
+      const botWelcome = {
+        id: Date.now() - 1,
+        role: "bot",
+        text: "เริ่มต้นค้นหางานจิตอาสา",
+      };
+      updatedMessages = [botWelcome, userMsg];
+      setMessages(updatedMessages);
+    } else {
+      updatedMessages = [...messages, userMsg];
+      setMessages(updatedMessages);
     }
 
-    const userMsg = { id: Date.now(), role: "user", text: input };
-    setMessages((prev) => [...prev, userMsg]);
     setInput("");
-    setTimeout(() => {
+    setLoading(true);
+
+    // แปลง messages เป็น history format ที่ backend รับได้
+    const history = messages
+      .filter((m) => m.role === "user" || m.role === "bot")
+      .map((m) => ({
+        role: m.role === "bot" ? "assistant" : "user",
+        content: m.text,
+      }));
+
+    try {
+      const res = await fetch("http://127.0.0.1:8000/ask", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ question, history }),
+      });
+
+      const data = await res.json();
+
       setMessages((prev) => [
         ...prev,
-        { id: Date.now() + 1, role: "bot", text: VOLUNTEER_DATA },
+        {
+          id: Date.now() + 1,
+          role: "bot",
+          text: data.answer || "ไม่สามารถตอบคำถามได้ในขณะนี้",
+        },
       ]);
-    }, 600);
+    } catch (error) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now() + 1,
+          role: "bot",
+          text: "เชื่อมต่อ backend ไม่ได้ กรุณาตรวจสอบว่า backend รันอยู่หรือไม่",
+        },
+      ]);
+    } finally {
+      setLoading(false);
+    }
   }
 
-  // ── Splash ──
   if (screen === "splash") {
     return (
       <div className="splash" onClick={() => setScreen("chat")}>
-        <img src="/team.png" alt="team" />
+        <img src="/team.png" alt="team" className="splash-logo" />
         <h1>JitArsa PhaPai</h1>
         <p>มาเริ่มต้นหางานอาสาด้วยกันเลย !</p>
+        <button className="start-btn">เริ่มใช้งาน</button>
       </div>
     );
   }
 
   const isEmpty = messages.length === 0;
 
-  // ── Chat ──
   return (
     <div className="chat">
-      {/* Header */}
       <div className="header">
-        <img src="/team.png" alt="bot" />
-        <span>JitArsa PhaPai</span>
+        <div className="brand">
+          <img src="/team.png" alt="bot" />
+          <div>
+            <h2>JitArsa PhaPai</h2>
+            <p>ผู้ช่วยค้นหางานอาสา</p>
+          </div>
+        </div>
       </div>
 
-      {/* Empty: centered greeting + input */}
       {isEmpty ? (
         <div className="empty-state">
-          <p className="greeting">เริ่มต้นค้นหางานจิตอาสา</p>
-          <InputBar value={input} onChange={setInput} onSend={sendMessage} />
+          <div className="hero-card">
+            <img src="/team.png" alt="bot" className="hero-logo" />
+            <p className="greeting">เริ่มต้นค้นหางานจิตอาสา</p>
+            <p className="sub-greeting">
+              ลองพิมพ์ เช่น งานอาสากรุงเทพ, งานอาสาออนไลน์, งานอาสาฟรี
+            </p>
+          </div>
+
+          <InputBar
+            value={input}
+            onChange={setInput}
+            onSend={sendMessage}
+            loading={loading}
+          />
         </div>
       ) : (
         <>
-          {/* Messages */}
           <div className="messages">
             {messages.map((msg) => (
               <div key={msg.id} className={`row ${msg.role}`}>
                 {msg.role === "bot" && (
                   <img src="/team.png" alt="bot" className="avatar" />
                 )}
-                <div className="bubble">{msg.text}</div>
+                <div className={`bubble ${msg.role}`}>
+                  {msg.text.split("\n").map((line, index) => (
+                    <p key={index}>{line}</p>
+                  ))}
+                </div>
               </div>
             ))}
+
+            {loading && (
+              <div className="row bot">
+                <img src="/team.png" alt="bot" className="avatar" />
+                <div className="bubble bot loading-bubble">
+                  <span className="dot"></span>
+                  <span className="dot"></span>
+                  <span className="dot"></span>
+                </div>
+              </div>
+            )}
+
             <div ref={bottomRef} />
           </div>
 
-          {/* Input pinned bottom */}
           <div className="input-wrap">
-            <InputBar value={input} onChange={setInput} onSend={sendMessage} />
+            <InputBar
+              value={input}
+              onChange={setInput}
+              onSend={sendMessage}
+              loading={loading}
+            />
           </div>
         </>
       )}
@@ -108,7 +168,7 @@ export default function App() {
   );
 }
 
-function InputBar({ value, onChange, onSend }) {
+function InputBar({ value, onChange, onSend, loading }) {
   return (
     <div className="input-bar">
       <input
@@ -116,9 +176,11 @@ function InputBar({ value, onChange, onSend }) {
         placeholder="ถามได้เลย !"
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && onSend()}
-        autoFocus
+        disabled={loading}
       />
-      <button onClick={onSend}>↑</button>
+      <button onClick={onSend} disabled={loading}>
+        {loading ? "..." : "↑"}
+      </button>
     </div>
   );
 }
