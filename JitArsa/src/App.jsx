@@ -28,7 +28,7 @@ export default function App() {
       const botWelcome = {
         id: Date.now() - 1,
         role: "bot",
-        text: "เริ่มต้นค้นหางานจิตอาสา",
+        text: "สวัสดี ! วันนี้มีอะไรจะถามภาหรอ ?",
       };
       updatedMessages = [botWelcome, userMsg];
       setMessages(updatedMessages);
@@ -40,12 +40,24 @@ export default function App() {
     setInput("");
     setLoading(true);
 
-    const history = messages
+    const history = [...updatedMessages]
       .filter((m) => m.role === "user" || m.role === "bot")
       .map((m) => ({
         role: m.role === "bot" ? "assistant" : "user",
         content: m.text,
       }));
+
+    const PLACEHOLDER_ID = "loading-placeholder";
+
+    // 1. ใส่ placeholder ก่อนยิง API
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: PLACEHOLDER_ID,
+        role: "bot",
+        text: "รอภาหน่อยน้า",
+      },
+    ]);
 
     try {
       const res = await fetch("http://127.0.0.1:8000/ask", {
@@ -58,33 +70,37 @@ export default function App() {
 
       const data = await res.json();
 
+      const replies = (data.answer || "ไม่สามารถตอบคำถามได้ในขณะนี้")
+        .split("|||")
+        .map((t) => t.trim())
+        .filter(Boolean);
+
+      // 2. ลบ placeholder แล้วใส่คำตอบ
       setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now() + 1,
+        ...prev.filter((m) => m.id !== PLACEHOLDER_ID),
+        ...replies.map((text, i) => ({
+          id: Date.now() + i,
           role: "bot",
-          text: data.answer || "ไม่สามารถตอบคำถามได้ในขณะนี้",
-        },
+          text,
+        })),
       ]);
-    // eslint-disable-next-line no-unused-vars
-    } catch (error) {
+    } catch {
       setMessages((prev) => [
-        ...prev,
+        ...prev.filter((m) => m.id !== PLACEHOLDER_ID),
         {
-          id: Date.now() + 1,
+          id: Date.now(),
           role: "bot",
-          text: "เชื่อมต่อ backend ไม่ได้ กรุณาตรวจสอบว่า backend รันอยู่หรือไม่",
+          text: "เชื่อมต่อ backend ไม่ได้ ลองใหม่อีกทีนะ",
         },
       ]);
     } finally {
       setLoading(false);
     }
   }
-
   if (screen === "splash") {
     return (
       <div
-        className="min-h-screen flex flex-col items-center justify-center gap-5 text-center px-6 cursor-pointer bg-[#DBDFEA]"
+        className="min-h-screen flex flex-col items-center justify-center gap-5 text-center px-6 cursor-pointer bg-[#DBDFEA] "
         onClick={() => setScreen("chat")}
       >
         <div className="relative">
@@ -105,9 +121,7 @@ export default function App() {
           </p>
         </div>
 
-        <p className="text-[#8294C4] text-base">
-          มาเริ่มคุยกับภากันเถอะ !
-        </p>
+        <p className="text-[#8294C4] text-base">มาเริ่มคุยกับภากันเถอะ !</p>
 
         <button
           className="mt-2 px-8 py-3 rounded-full bg-[#8294C4] text-white font-semibold text-sm shadow-md hover:bg-[#6b7db0] active:scale-95 transition-all duration-150"
@@ -122,7 +136,7 @@ export default function App() {
   const isEmpty = messages.length === 0;
 
   return (
-    <div className="flex flex-col h-screen bg-[#DBDFEA]">
+    <div className="flex flex-col h-screen bg-[#DBDFEA] font-kodchasan">
       {/* Header */}
       <div className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b border-[#ACB1D6]/30 px-4 py-3">
         <div className="flex items-center gap-3 max-w-3xl mx-auto">
@@ -155,20 +169,23 @@ export default function App() {
               alt="bot"
               className="w-20 h-20 rounded-full mx-auto mb-4 border-4 border-[#DBDFEA] shadow"
             />
-            <p className="text-xl font-bold text-[#8294C4] mb-1">
-              สวัสดี! 👋
-            </p>
+            <p className="text-xl font-bold text-[#8294C4] mb-1">สวัสดี! 👋</p>
             <p className="text-[#8294C4] font-semibold mb-1">
               เราชื่อภา เป็นเพื่อนคุยงานอาสาของเธอ
             </p>
             <p className="text-sm text-[#ACB1D6] leading-relaxed">
-              มีอะไรอยากถามเกี่ยวกับงานอาสาไหม? 
-              <br />ลองพิมพ์คำถามหรือเลือกจากคำแนะนำด้านล่างได้เลย!
+              มีอะไรอยากถามเกี่ยวกับงานอาสาไหม?
+              <br />
+              ลองพิมพ์คำถามหรือเลือกจากคำแนะนำด้านล่างได้เลย!
             </p>
 
             {/* Suggestion chips */}
             <div className="flex flex-wrap justify-center gap-2 mt-5">
-              {["มีงานอาสาที่กรุงเทพไหม?", "อยากได้งานอาสาออนไลน์", "งานอาสาฟรีมีไหม?"].map((s) => (
+              {[
+                "มีงานอาสาที่กรุงเทพไหม?",
+                "อยากได้งานอาสาออนไลน์",
+                "งานอาสาฟรีมีไหม?",
+              ].map((s) => (
                 <button
                   key={s}
                   onClick={() => setInput(s)}
@@ -216,7 +233,12 @@ export default function App() {
                   }`}
                 >
                   {msg.text.split("\n").map((line, i) => (
-                    <p key={i} className={i < msg.text.split("\n").length - 1 ? "mb-1" : ""}>
+                    <p
+                      key={i}
+                      className={
+                        i < msg.text.split("\n").length - 1 ? "mb-1" : ""
+                      }
+                    >
                       {line}
                     </p>
                   ))}
@@ -279,7 +301,12 @@ function InputBar({ value, onChange, onSend, loading }) {
         {loading ? (
           <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
         ) : (
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            className="w-4 h-4"
+          >
             <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
           </svg>
         )}
