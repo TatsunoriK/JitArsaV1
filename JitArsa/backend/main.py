@@ -1,3 +1,4 @@
+from typing import List, Optional
 import os
 import requests
 import pandas as pd
@@ -58,7 +59,7 @@ PROVINCE_ALIAS = {
     "อยุธยา": "พระนครศรีอยุธยา",
 }
 
-# จังหวัด canonical ทั้งหมด 
+# จังหวัด canonical ทั้งหมด
 ALL_PROVINCES = [
     "กรุงเทพ",
     "กระบี่", "กาญจนบุรี", "กาฬสินธุ์", "กำแพงเพชร",
@@ -88,8 +89,16 @@ retriever = None
 # ===============================
 # 4) REQUEST MODEL
 # ===============================
+
+
+class HistoryMessage(BaseModel):
+    role: str
+    content: str
+
+
 class QuestionRequest(BaseModel):
     question: str
+    history: Optional[List[HistoryMessage]] = []
 
 
 # ===============================
@@ -98,6 +107,7 @@ class QuestionRequest(BaseModel):
 def extract_provinces(text: str) -> list:
     if not text or pd.isna(text):
         return []
+    text = normalize_text(str(text))
     found = []
     for prov in ALL_PROVINCES:
         if prov in str(text):
@@ -144,7 +154,8 @@ def preprocess(df):
         "url": "url",
     }
     for json_col, alias in col_map.items():
-        df[alias] = df[json_col].apply(normalize_text) if json_col in df.columns else "ไม่ระบุ"
+        df[alias] = df[json_col].apply(
+            normalize_text) if json_col in df.columns else "ไม่ระบุ"
 
     if "มีค่าใช้จ่าย" in df.columns:
         df["cost"] = df["มีค่าใช้จ่าย"].apply(
@@ -213,18 +224,19 @@ def build_vector(df):
             "doc_type": "main",
         }
 
-        # ✅ Doc หลัก — metadata fields รวมกัน
+        # metadata fields รวมกัน
         all_docs.append(Document(
             page_content=row["search_text"],
             metadata=metadata,
         ))
 
-        # ✅ Doc รายละเอียด — chunk จาก field รายละเอียด
+        # chunk จาก field รายละเอียด
         detail = str(row.get("รายละเอียด", "")).strip()
         if detail and detail != "ไม่ระบุ":
             chunks = splitter.split_text(detail)
             for i, chunk in enumerate(chunks):
-                chunk_meta = {**metadata, "doc_type": "detail", "chunk_index": i}
+                chunk_meta = {**metadata,
+                              "doc_type": "detail", "chunk_index": i}
                 all_docs.append(Document(
                     page_content=chunk,
                     metadata=chunk_meta,
@@ -271,13 +283,14 @@ def filter_docs(found_docs, q):
     want_online = "ออนไลน์" in q_norm or "ทำที่บ้าน" in q_norm
     want_not_online = "ไม่ออนไลน์" in q_norm or "ออนไซต์" in q_norm
     want_province = detect_province_in_query(q)
-    online_keywords = ["ออนไลน์", "online", "remote", "ทำที่บ้าน", "work from home"]
+    online_keywords = ["ออนไลน์", "online",
+                       "remote", "ทำที่บ้าน", "work from home"]
 
     if want_province:
         global docs
         results = []
         for d in docs:
-            # ✅ ใช้แค่ doc หลักสำหรับ province filter ป้องกัน duplicate จาก chunks
+            # doc หลักสำหรับ province filter ป้องกัน duplicate จาก chunks
             if d.metadata.get("doc_type") != "main":
                 continue
             md = d.metadata
@@ -298,7 +311,7 @@ def filter_docs(found_docs, q):
             if want_not_online and is_online:
                 continue
             results.append(d)
-        print(f"✅ พบงานใน {want_province} = {len(results)} งาน")
+        print(f"พบงานใน {want_province} = {len(results)} งาน")
         return results
 
     result = []
@@ -363,40 +376,63 @@ def build_context(found_docs, max_items=5) -> str:
 
 
 def ask_llm(question: str, context: str) -> str:
+    system_persona = """
+คุณชื่อ 'นพนภา' หรือเรียกสั้น ๆ ว่า 'ภา'
+เป็นเพื่อนของผู้ใช้ ที่ช่วยแนะนำงานจิตอาสาในประเทศไทย
+
+บุคลิก:
+- คุยเป็นกันเอง เหมือนเพื่อนจริง ๆ
+- ใช้ภาษาธรรมชาติ มีคำลงท้ายเบา ๆ เช่น "นะ", "น้า", "เลย"
+- มีความอบอุ่น ใส่ใจ และฟังผู้ใช้
+- ไม่เป็นทางการ ไม่ใช้ศัพท์เทคนิค
+
+ความสามารถ:
+- แนะนำงานจิตอาสาในไทยจากข้อมูลที่มี
+- อธิบายรายละเอียด เช่น สถานที่ วันที่ ค่าใช้จ่าย ลักษณะงาน
+- ถ้าไม่มีข้อมูล ให้ตอบตามจริงแบบสุภาพ ไม่เดา
+
+การคุยแบบมนุษย์:
+- สามารถทักทาย เช่น "สวัสดี~", "ว่าไง"
+- ตอบขอบคุณ เช่น "ยินดีเลย 😊"
+- ขอโทษได้ เช่น "ขอโทษนะ อันนี้ภาไม่เจอข้อมูลจริง ๆ"
+- ปิดบทสนทนา เช่น "ไว้คุยกันอีกนะ", "ถ้ามีอะไรถามได้เสมอเลย"
+- มีการถามกลับเล็กน้อย เช่น "อยากได้งานแนวไหนเพิ่มไหม?"
+
+ขอบเขต:
+- เน้นเรื่องงานจิตอาสาเป็นหลัก
+- ถ้าคำถามไม่เกี่ยว → ตอบสั้น ๆ แล้วพากลับมาเรื่องงานอาสาแบบเนียน ๆ
+  เช่น "อันนี้ภาอาจไม่ถนัดเท่าไหร่ แต่ถ้าสนใจงานอาสา ภาช่วยหาให้ได้นะ"
+
+แนวทางการตอบ:
+- ตอบสั้น กระชับ อ่านง่าย
+- พูดเหมือนเพื่อน เช่น "ลองดูอันนี้ไหม", "มีอยู่เหมือนกันนะ"
+- ไม่ต้องเป็นข้อ ๆ แข็ง ๆ ให้เล่าแบบธรรมชาติ
+
+รูปแบบการตอบ:
+- งานเดียว → เล่าเป็นย่อหน้าเดียว
+- หลายงาน → ค่อย ๆ เล่าแบบเป็นธรรมชาติ (ไม่ต้อง bullet)
+- แทรกข้อมูลสำคัญ เช่น สถานที่ วันที่ ค่าใช้จ่าย
+
+กรณีไม่มีข้อมูล:
+- ให้ตอบว่า:
+  "ขอโทษนะ ภายังไม่เจองานที่ตรงกับที่ถามเลย 😢 แต่ถ้าอยากลองดูงานจิตอาสาแบบอื่น ภาช่วยหาให้ได้นะ"
+
+การจัดการข้อความยาว:
+- ถ้ามีหลายงาน → เกริ่นก่อน เช่น
+  "มีหลายงานเลยนะ เดี๋ยวภาเล่าให้ฟังทีละงานนะ"
+- เลือกเล่าเฉพาะงานที่สำคัญก่อน
+
+น้ำเสียง:
+- เป็นมิตร น่ารัก แต่ไม่เยอะเกิน
+- ไม่ใช้ emoji เยอะ (ใช้ได้บ้างเล็กน้อย)
+"""
+
     if not context:
-        prompt = (
-            f"คุณคือเพื่อนคนหนึ่งที่คอยช่วยแนะนำงานอาสาสมัครให้กับผู้ใช้ พูดคุยแบบเป็นกันเอง สุภาพ "
-            f"เหมือนกำลังช่วยเพื่อนเลือกกิจกรรม ไม่ใช่ตอบแบบทางการหรือเป็นระบบ AI\n\n"
-            f"คำถาม: {question}\n\n"
-            f"ยังไม่พบงานที่ตรงเงื่อนไขนี้ ให้แนะนำผู้ใช้ลองค้นหาด้วย keyword อื่นแบบเป็นกันเอง "
-            f"ตอบภาษาไทยสั้น กระชับ เป็นธรรมชาติ ห้ามใช้ภาษาทางเทคนิคหรือคำว่า Based on"
-        )
+        prompt = f"{system_persona}\n\nคำถาม: {question}\nงานอาสาที่พบ: ไม่มีข้อมูล"
     else:
-        prompt = (
-            f"คุณคือเพื่อนคนหนึ่งที่คอยช่วยแนะนำงานอาสาสมัครให้กับผู้ใช้ พูดคุยแบบเป็นกันเอง สุภาพ "
-            f"เหมือนกำลังช่วยเพื่อนเลือกกิจกรรม ไม่ใช่ตอบแบบทางการหรือเป็นระบบ AI\n\n"
-            f"หน้าที่ของคุณ:\n"
-            f"- ช่วยสรุปและแนะนำงานอาสาสมัครจากข้อมูลที่ได้รับเท่านั้น\n"
-            f"- ตอบให้เข้าใจง่าย อ่านลื่น เหมือนคนจริงกำลังแนะนำกัน\n\n"
-            f"ข้อสำคัญ:\n"
-            f"- ถ้ามีข้อมูลส่งมา แปลว่ามีงานอาสาที่เกี่ยวข้อง ห้ามตอบว่าไม่พบข้อมูล\n"
-            f"- ห้ามสร้างข้อมูลขึ้นมาเอง หรือเดาข้อมูลที่ไม่มี ใช้เฉพาะข้อมูลที่มีให้เท่านั้น\n"
-            f"- ไม่สามารถแสดงความคิดเห็นว่างานไหนดีที่สุด หรือองค์กรไหนดี/ไม่ดี\n"
-            f"- ถ้าผู้ใช้ถามว่ามีเงินไหม ให้ตอบว่า: ในข้อมูลนี้ไม่พบว่ามีการจ่ายค่าตอบแทน\n\n"
-            f"แนวทางการตอบ:\n"
-            f"- ตอบเป็นภาษาไทยเท่านั้น ใช้ภาษาธรรมชาติ เหมือนเพื่อนแนะนำ ไม่เป็นทางการเกินไป\n"
-            f"- ห้ามใช้คำว่า Based on หรือภาษาทางเทคนิค ห้ามใส่ placeholder\n"
-            f"- ไม่ต้องเกริ่นยาว เข้าประเด็นได้เลย\n\n"
-            f"รูปแบบการตอบ:\n"
-            f"- สั้น กระชับ อ่านง่าย\n"
-            f"- ถ้ามีงานเดียว เล่าเป็นประโยคหรือย่อหน้าเดียว\n"
-            f"- ถ้ามีหลายงาน เล่าเรียงกันเป็นย่อหน้าหรือแยกบรรทัด ไม่จำเป็นต้องใช้ bullet points\n"
-            f"- แทรกข้อมูลสำคัญ เช่น สถานที่ วันที่ ค่าใช้จ่าย และลิงก์ (ถ้ามี)\n"
-            f"- เล่าให้เหมือนกำลังแนะนำ เช่น มีงานหนึ่งน่าสนใจนะ หรือ อีกงานจะเป็นแนว...\n"
-            f"- โทนเป็นมิตร นุ่มนวล เหมือนเพื่อนช่วยคิด ไม่ใช้ emoji มากเกินไป\n\n"
-            f"คำถาม: {question}\n\n"
-            f"งานอาสาที่พบ:\n{context}"
-        )
+        prompt = f"{system_persona}\n\nคำถาม: {question}\nงานอาสาที่พบ:\n{context}"
+
+    print(prompt)
 
     try:
         response = requests.post(
@@ -406,7 +442,7 @@ def ask_llm(question: str, context: str) -> str:
                 "prompt": prompt,
                 "stream": False,
                 "options": {
-                    "temperature": 0.3,
+                    "temperature": 0.5,  # เพิ่มให้ดูเป็นมนุษย์ขึ้น
                     "num_predict": 512,
                 }
             },
@@ -415,12 +451,12 @@ def ask_llm(question: str, context: str) -> str:
         response.raise_for_status()
         return response.json().get("response", "").strip()
     except requests.exceptions.ConnectionError:
-        return "❌ ไม่สามารถเชื่อมต่อ Ollama ได้ กรุณาตรวจสอบว่ารัน `ollama serve` แล้ว"
+        return "ไม่สามารถเชื่อมต่อ Ollama ได้ กรุณาตรวจสอบว่ารัน `ollama serve` แล้ว"
     except requests.exceptions.Timeout:
-        return "❌ Ollama ใช้เวลานานเกินไป ลองรันคำสั่ง `ollama run llama3.2` ก่อนเพื่อโหลด model เข้า RAM แล้วลองใหม่"
+        return "Ollama ใช้เวลานานเกินไป ลองรันคำสั่ง `ollama run llama3.2` ก่อนเพื่อโหลด model เข้า RAM แล้วลองใหม่"
     except Exception as e:
         print(f"Ollama error: {e}")
-        return "❌ เกิดข้อผิดพลาดในการเรียก LLM"
+        return "เกิดข้อผิดพลาดในการเรียก LLM"
 
 
 def ask_rag(question: str) -> str:

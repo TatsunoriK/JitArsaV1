@@ -1,4 +1,6 @@
-* {
+@import "tailwindcss";
+
+/* * {
   box-sizing: border-box;
 }
 
@@ -6,17 +8,17 @@ body {
   margin: 0;
   font-family: "Inter", "Noto Sans Thai", sans-serif;
   background: linear-gradient(160deg, #fdf4ff 0%, #fce7f3 30%, #ede9fe 65%, #e0f2fe 100%);
-  background-attachment: fixed;  /* ← เพิ่มบรรทัดนี้ */
+  background-attachment: fixed;
   min-height: 100vh;
   color: #1f2937;
 }
 
 #root {
   min-height: 100vh;
-}
+} */
 
 /* ─── Splash ─── */
-.splash {
+/* .splash {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -89,10 +91,10 @@ body {
 
 .start-btn:active {
   transform: translateY(0);
-}
+} */
 
 /* ─── Chat Layout ─── */
-.chat {
+/* .chat {
   min-height: 100vh;
   height: 100vh;        
   display: flex;
@@ -140,10 +142,10 @@ body {
   margin: 2px 0 0;
   font-size: 0.82rem;
   color: #9ca3af;
-}
+} */
 
 /* ─── Empty State ─── */
-.empty-state {
+/* .empty-state {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -194,10 +196,10 @@ body {
   color: #9ca3af;
   font-size: 0.95rem;
   line-height: 1.7;
-}
+} */
 
 /* ─── Messages ─── */
-.messages {
+/* .messages {
   flex: 1;
   width: 100%;
   max-width: 980px;
@@ -262,18 +264,18 @@ body {
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-}
+} */
 
 /* ─── Loading dots ─── */
-.loading-bubble {
+/* .loading-bubble {
   display: flex;
   align-items: center;
   gap: 5px;
   min-width: 66px;
   padding: 16px 18px;
-}
+} */
 
-.dot {
+/* .dot {
   width: 7px;
   height: 7px;
   border-radius: 999px;
@@ -287,10 +289,10 @@ body {
 @keyframes bounce {
   0%, 80%, 100% { transform: scale(0.65); opacity: 0.4; }
   40% { transform: scale(1); opacity: 1; }
-}
+} */
 
 /* ─── Input ─── */
-.input-wrap {
+/* .input-wrap {
   position: fixed;
   left: 0;
   right: 0;
@@ -375,10 +377,10 @@ body {
 .input-bar input:disabled {
   opacity: 0.55;
   cursor: not-allowed;
-}
+} */
 
 /* ─── Mobile ─── */
-@media (max-width: 768px) {
+/* @media (max-width: 768px) {
   .splash h1 { font-size: 2rem; }
   .greeting { font-size: 1.25rem; }
 
@@ -403,4 +405,4 @@ body {
     width: 40px;
     height: 40px;
   }
-}
+} */
