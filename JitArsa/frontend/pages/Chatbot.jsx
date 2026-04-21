@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-export default function App() {
+export default function Chatbot() {
   const [screen, setScreen] = useState("splash");
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -15,67 +15,50 @@ export default function App() {
     const question = input.trim();
     if (!question || loading) return;
 
-    const userMsg = {
-      id: Date.now(),
-      role: "user",
-      text: question,
-    };
+    const userMsg = { id: Date.now(), role: "user", text: question };
 
-    const firstTime = messages.length === 0;
+    let updatedMessages =
+      messages.length === 0
+        ? [
+            {
+              id: Date.now() - 1,
+              role: "bot",
+              text: "สวัสดี ! วันนี้มีอะไรจะถามภาหรอ ?",
+            },
+            userMsg,
+          ]
+        : [...messages, userMsg];
 
-    let updatedMessages;
-    if (firstTime) {
-      const botWelcome = {
-        id: Date.now() - 1,
-        role: "bot",
-        text: "สวัสดี ! วันนี้มีอะไรจะถามภาหรอ ?",
-      };
-      updatedMessages = [botWelcome, userMsg];
-      setMessages(updatedMessages);
-    } else {
-      updatedMessages = [...messages, userMsg];
-      setMessages(updatedMessages);
-    }
-
+    setMessages(updatedMessages);
     setInput("");
     setLoading(true);
 
-    const history = [...updatedMessages]
-      .filter((m) => m.role === "user" || m.role === "bot")
-      .map((m) => ({
-        role: m.role === "bot" ? "assistant" : "user",
-        content: m.text,
-      }));
+    const history = updatedMessages.map((m) => ({
+      role: m.role === "bot" ? "assistant" : "user",
+      content: m.text,
+    }));
 
     const PLACEHOLDER_ID = "loading-placeholder";
-
-    // 1. ใส่ placeholder ก่อนยิง API
     setMessages((prev) => [
       ...prev,
-      {
-        id: PLACEHOLDER_ID,
-        role: "bot",
-        text: "รอภาหน่อยน้า",
-      },
+      { id: PLACEHOLDER_ID, role: "bot", text: "รอภาหน่อยน้า" },
     ]);
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/ask", {
+      const res = await fetch("http://127.0.0.1:8000/ask-pha", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question, history }),
       });
 
+      if (!res.ok) throw new Error("Server error");
       const data = await res.json();
 
-      const replies = (data.answer || "ไม่สามารถตอบคำถามได้ในขณะนี้")
+      const replies = (data.answer || "ขอโทษนะ ภาหาคำตอบไม่เจอ")
         .split("|||")
         .map((t) => t.trim())
         .filter(Boolean);
 
-      // 2. ลบ placeholder แล้วใส่คำตอบ
       setMessages((prev) => [
         ...prev.filter((m) => m.id !== PLACEHOLDER_ID),
         ...replies.map((text, i) => ({
@@ -84,7 +67,8 @@ export default function App() {
           text,
         })),
       ]);
-    } catch {
+    } catch (err) {
+      console.error("Fetch Error:", err);
       setMessages((prev) => [
         ...prev.filter((m) => m.id !== PLACEHOLDER_ID),
         {
@@ -97,6 +81,7 @@ export default function App() {
       setLoading(false);
     }
   }
+
   if (screen === "splash") {
     return (
       <div

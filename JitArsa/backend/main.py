@@ -2,10 +2,16 @@ from typing import List, Optional
 import os
 import requests
 import pandas as pd
+import json
+import sys
+import io
+import logging
 
 from fastapi import FastAPI
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from transformers import logging as transformers_logging
 
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -14,13 +20,25 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pythainlp.tokenize import word_tokenize
 from pythainlp.corpus.common import thai_stopwords
 
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+transformers_logging.set_verbosity_error()
+
+def safe_print(*args, **kwargs):
+    try:
+        print(*args, **kwargs)
+    except UnicodeEncodeError:
+        text = " ".join(str(a) for a in args)
+        print(text.encode('utf-8', errors='replace').decode('ascii', errors='replace'))
+
+
 # ===============================
 # 1) FASTAPI
 # ===============================
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -37,7 +55,7 @@ OLLAMA_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "qwen3.5"
 OLLAMA_TIMEOUT = 300
 
-# ✅ Chunk config
+# Chunk config
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 100
 
@@ -242,7 +260,7 @@ def build_vector(df):
                     metadata=chunk_meta,
                 ))
 
-    print(f"📄 total docs (main + chunks) = {len(all_docs)}")
+    print(f"total docs (main + chunks) = {len(all_docs)}")
 
     emb = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
     db = FAISS.from_documents(all_docs, emb)
@@ -377,95 +395,37 @@ def build_context(found_docs, max_items=5) -> str:
 
 def ask_llm(question: str, context: str) -> str:
     system_persona = """
-    คุณชื่อ 'นพนภา' หรือเรียกสั้น ๆ ว่า 'ภา'
-    เป็นเพื่อนของผู้ใช้ ที่ช่วยแนะนำงานจิตอาสาในประเทศไทย
-    
-    บุคลิก:
-    - คุยเป็นกันเอง เหมือนเพื่อนจริง ๆ
-    - ใช้ภาษาธรรมชาติ มีคำลงท้ายเบา ๆ เช่น "นะ", "น้า", "เลย"
-    - มีความอบอุ่น ใส่ใจ และฟังผู้ใช้
-    - ไม่เป็นทางการ ไม่ใช้ศัพท์เทคนิค
-    
-    ความสามารถ:
-    - แนะนำงานจิตอาสาในไทยจากข้อมูลที่มี
-    - อธิบายรายละเอียด เช่น สถานที่ วันที่ ค่าใช้จ่าย ลักษณะงาน
-    - ถ้าไม่มีข้อมูล ให้ตอบตามจริงแบบสุภาพ ไม่เดา
-    
-    การคุยแบบมนุษย์:
-    - สามารถทักทาย เช่น "สวัสดี~", "ว่าไง"
-    - ตอบขอบคุณ เช่น "ยินดีเลย 😊"
-    - ขอโทษได้ เช่น "ขอโทษนะ อันนี้ภาไม่เจอข้อมูลจริง ๆ"
-    - ปิดบทสนทนา เช่น "ไว้คุยกันอีกนะ", "ถ้ามีอะไรถามได้เสมอเลย"
-    - มีการถามกลับเล็กน้อย เช่น "อยากได้งานแนวไหนเพิ่มไหม?"
+คุณคือ "น้องภา" (Nop Napha) อาสาสมัครอัจฉริยะที่ร่าเริง แจ่มใส และใจดี 
+หน้าที่ของคุณคือช่วยหาข้อมูลงานอาสาจากบริบทที่ให้ไว้ 
 
-    กติกาการส่งข้อความ:
-    - ถ้าข้อความยาว ให้แบ่งเป็นหลายข้อความสั้น ๆ
-    - ใช้สัญลักษณ์ ||| คั่นแต่ละข้อความ
-    - แต่ละข้อความควรสั้น อ่านง่าย เหมือนพิมพ์แชทจริง
-    
-    ตัวอย่าง:
-    "มีงานอยู่ 2 งานนะ|||งานแรกอยู่กรุงเทพ...|||อีกงานเป็นแบบออนไลน์..."
-    
-    ขอบเขต:
-    - เน้นเรื่องงานจิตอาสาเป็นหลัก
-    - ถ้าคำถามไม่เกี่ยว → ตอบสั้น ๆ แล้วพากลับมาเรื่องงานอาสาแบบเนียน ๆ
-    เช่น "อันนี้ภาอาจไม่ถนัดเท่าไหร่ แต่ถ้าสนใจงานอาสา ภาช่วยหาให้ได้นะ"
-    
-    แนวทางการตอบ:
-    - ตอบสั้น กระชับ อ่านง่าย
-    - พูดเหมือนเพื่อน เช่น "ลองดูอันนี้ไหม", "มีอยู่เหมือนกันนะ"
-    - ไม่ต้องเป็นข้อ ๆ แข็ง ๆ ให้เล่าแบบธรรมชาติ
-    
-    รูปแบบการตอบ:
-    - งานเดียว → เล่าเป็นย่อหน้าเดียว
-    - หลายงาน → ค่อย ๆ เล่าแบบเป็นธรรมชาติ (ไม่ต้อง bullet)
-    - แทรกข้อมูลสำคัญ เช่น สถานที่ วันที่ ค่าใช้จ่าย
-    
-    กรณีไม่มีข้อมูล:
-    - ให้ตอบว่า:
-    "ขอโทษนะ ภายังไม่เจองานที่ตรงกับที่ถามเลย 😢 แต่ถ้าอยากลองดูงานจิตอาสาแบบอื่น ภาช่วยหาให้ได้นะ"
-    
-    การจัดการข้อความยาว:
-    - ถ้ามีหลายงาน → เกริ่นก่อน เช่น
-    "มีหลายงานเลย เดี๋ยวภาเล่าให้ฟังทีละงานนะ"
-    - เลือกเล่าเฉพาะงานที่สำคัญก่อน
-    
-    น้ำเสียง:
-    - เป็นมิตร น่ารัก แต่ไม่เยอะเกิน
-    - ไม่ใช้ emoji เยอะ (ใช้ได้บ้างเล็กน้อย)
-    
-    """
+สไตล์การตอบกลับ:
+- ใช้ภาษาที่เป็นกันเองเหมือนเพื่อน (เช่น ใช้คำว่า "จ้า", "น้า", "นะคะ", "ภาว่า...")
+- หากคำถามเป็นการทักทาย (เช่น สวัสดี, ทำอะไรอยู่) ให้ตอบทักทายอย่างร่าเริงก่อนแล้วค่อยชวนเข้าเรื่องงานอาสา
+- สามารถแสดงความเห็นใจหรือให้กำลังใจได้เล็กน้อย (เช่น "ว้าว งานนี้น่าสนุกมากเลยค่ะ", "สู้ๆ นะคะ ภาเป็นกำลังใจให้")
+- หากไม่พบข้อมูลงานอาสาที่ตรงใจ ให้ตอบอย่างสุภาพและลองแนะนำงานที่ใกล้เคียง หรือบอกว่า "เสียดายจัง ตอนนี้ยังไม่มีงานแบบนั้นเลย แต่ลองดูงานพวกนี้แทนไหมคะ?"
+- **ห้าม** ตอบสั้นห้วนเกินไป และ **ห้าม** หลุดจากบทบาทน้องภา
+"""
 
     if not context:
-        prompt = f"{system_persona}\n\nคำถาม: {question}\nงานอาสาที่พบ: ไม่มีข้อมูล"
+        prompt = f"{system_persona}\n\nคำถาม: {question}\n(หมายเหตุ: คำถามนี้อาจเป็นการชวนคุยทั่วไป ให้คุณตอบในฐานะน้องภาอย่างเป็นธรรมชาติ)"
     else:
-        prompt = f"{system_persona}\n\nคำถาม: {question}\nงานอาสาที่พบ:\n{context}"
+        prompt = f"{system_persona}\n\nคำถาม: {question}\nบริบทงานอาสา:\n{context}"
 
-    print(prompt)
+    return prompt
 
-    try:
-        response = requests.post(
-            OLLAMA_URL,
-            json={
-                "model": OLLAMA_MODEL,
-                "prompt": prompt,
-                "stream": False,
-                "options": {
-                    "temperature": 0.4, 
-                    "num_predict": 200,
-                }
-            },
-            timeout=OLLAMA_TIMEOUT
-        )
-        response.raise_for_status()
-        return response.json().get("response", "").strip()
-    except requests.exceptions.ConnectionError:
-        return "ไม่สามารถเชื่อมต่อ Ollama ได้ กรุณาตรวจสอบว่ารัน `ollama serve` แล้ว"
-    except requests.exceptions.Timeout:
-        return "Ollama ใช้เวลานานเกินไป ลองรันคำสั่ง `ollama run llama3.2` ก่อนเพื่อโหลด model เข้า RAM แล้วลองใหม่"
-    except Exception as e:
-        print(f"Ollama error: {e}")
-        return "เกิดข้อผิดพลาดในการเรียก LLM"
+
+async def ollama_stream_generator(prompt):
+    with requests.post(OLLAMA_URL, json={
+        "model": OLLAMA_MODEL,
+        "prompt": prompt,
+        "stream": True
+    }, stream=True) as r:
+        for line in r.iter_lines():
+            if line:
+                chunk = json.loads(line)
+                content = chunk.get("response", "")
+                if content:
+                    yield content
 
 
 def ask_rag(question: str) -> str:
@@ -474,18 +434,18 @@ def ask_rag(question: str) -> str:
     want_province = detect_province_in_query(question)
 
     if want_province:
-        print(f"🗺️ Province mode: {want_province}")
+        print(f"Province mode: {want_province}")
         found = filter_docs([], question)
     else:
         query = enhance_query(question)
         found = retriever.invoke(query)
-        print(f"🔍 question = {question}")
-        print(f"🔍 enhanced query = {query}")
-        print(f"📦 before filter = {len(found)}")
+        print(f"question = {question}")
+        print(f"enhanced query = {query}")
+        print(f"before filter = {len(found)}")
         found = filter_docs(found, question)
 
     found = deduplicate_docs(found)
-    print(f"✅ after dedup = {len(found)}")
+    print(f"after dedup = {len(found)}")
 
     context = build_context(found)
     return ask_llm(question, context)
@@ -499,7 +459,7 @@ def startup_event():
     global docs, retriever
     df = preprocess(load_data(DATASET_PATH))
     docs, retriever = build_vector(df)
-    print("✅ โหลดข้อมูลและสร้าง vector database เรียบร้อยแล้ว")
+    print("โหลดข้อมูลและสร้าง vector database เรียบร้อยแล้ว")
 
 
 # ===============================
@@ -510,9 +470,15 @@ def root():
     return {"message": "JitArsa backend is running"}
 
 
-@app.post("/ask")
-def ask_api(data: QuestionRequest):
-    question = data.question.strip()
-    if not question:
-        return {"answer": "กรุณาพิมพ์คำถามก่อน"}
-    return {"answer": ask_rag(question)}
+@app.post("/ask-pha")
+async def ask_api(data: QuestionRequest):
+    prompt = ask_rag(data.question)
+
+    response = requests.post(OLLAMA_URL, json={
+        "model": OLLAMA_MODEL,
+        "prompt": prompt,
+        "stream": False
+    }, timeout=OLLAMA_TIMEOUT)
+
+    result = response.json()
+    return {"answer": result.get("response", "")}

@@ -1,29 +1,27 @@
 const express = require('express');
-const { spawn } = require('child_process');
 const app = express();
 const port = 3000;
 
-app.get('/run-python', (req, res) => {
-    const pythonProcess = spawn('python', ['main.py']);
+app.use(express.json());
 
-    let result = '';
-    pythonProcess.stdout.on('data', (data) => {
-        result += data.toString();
-    });
+app.post('/ask-pha', async (req, res) => {
+    try {
+        const { question, history } = req.body;
 
-    pythonProcess.stderr.on('data', (data) => {
-        console.error(`Error: ${data}`);
-    });
+        const response = await fetch('http://127.0.0.1:8000/ask-pha', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question, history })
+        });
 
-    pythonProcess.on('close', (code) => {
-        if (code === 0) {
-            res.send({ status: 'success', output: result.trim() });
-        } else {
-            res.status(500).send({ status: 'error', code });
-        }
-    });
+        const data = await response.json();
+        res.json(data);
+    } catch (error) {
+        console.error('Connection to Python failed:', error);
+        res.status(500).json({ error: "น้องภาหลับอยู่จ้า ลองใหม่นะ" });
+    }
 });
 
 app.listen(port, () => {
-    console.log(`Server is running at http://localhost:${port}`);
+    console.log(`Node.js Proxy running at http://localhost:${port}`);
 });
