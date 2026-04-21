@@ -30,7 +30,7 @@ app.add_middleware(
 # 2) CONFIG
 # ===============================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATASET_PATH = os.path.join(BASE_DIR, "jitarsa.json")
+DATASET_PATH = os.path.join(BASE_DIR, "data/jitarsa.json")
 EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
