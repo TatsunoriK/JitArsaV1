@@ -46,34 +46,45 @@ export default function Chatbot() {
 
     const PLACEHOLDER_ID = "loading-placeholder";
 
+    // show streaming placeholder
+    setMessages((prev) => [
+      ...prev,
+      { id: PLACEHOLDER_ID, role: "bot", text: "" },
+    ]);
+
     try {
       const res = await fetch("/ask-pha", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          question: input,
-          history: [],
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question, history: [] }),
       });
 
       if (!res.ok) throw new Error(`Server error: ${res.status}`);
-      const data = await res.json();
 
-      const replies = (data.answer || "ขอโทษนะ ภาหาคำตอบไม่เจอ")
-        .split("|||")
-        .map((t) => t.trim())
-        .filter(Boolean);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let full = "";
 
-      setMessages((prev) => [
-        ...prev.filter((m) => m.id !== PLACEHOLDER_ID),
-        ...replies.map((text, i) => ({
-          id: `bot-${Date.now()}-${i}`,
-          role: "bot",
-          text,
-        })),
-      ]);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        full += decoder.decode(value, { stream: true });
+        const snapshot = full;
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === PLACEHOLDER_ID ? { ...m, text: snapshot } : m
+          )
+        );
+      }
+
+      // finalise
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === PLACEHOLDER_ID
+            ? { ...m, id: `bot-${Date.now()}`, text: full || "ขอโทษนะ ภาหาคำตอบไม่เจอ" }
+            : m
+        )
+      );
     } catch (err) {
       console.error("Fetch Error:", err);
       setMessages((prev) => [

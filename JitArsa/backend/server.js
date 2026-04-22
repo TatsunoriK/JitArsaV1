@@ -12,15 +12,11 @@ app.post("/ask-pha", async (req, res) => {
     const { question, history } = req.body;
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      controller.abort();
-    }, 300000);
+    const timeout = setTimeout(() => controller.abort(), 60000);
 
     const response = await fetch("http://localhost:8000/ask-pha", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question, history }),
       signal: controller.signal,
     });
@@ -33,19 +29,26 @@ app.post("/ask-pha", async (req, res) => {
       return res.status(500).json({ error: "Python backend error" });
     }
 
-    const data = await response.json();
-    res.json(data);
+    // Always stream through — Python always returns text/plain streaming
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Transfer-Encoding", "chunked");
+    res.setHeader("X-Accel-Buffering", "no");
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      res.write(decoder.decode(value, { stream: true }));
+    }
+    res.end();
   } catch (error) {
     console.error("FULL ERROR:", error);
-
     if (error.name === "AbortError") {
       return res.status(504).json({ error: "Python ใช้เวลานานเกินไป (timeout)" });
     }
-
-    res.status(500).json({
-      error: "Connection failed",
-      detail: error.message,
-    });
+    res.status(500).json({ error: "Connection failed", detail: error.message });
   }
 });
 

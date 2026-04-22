@@ -9,3 +9,8 @@ ollama pull llama3.2
 ollama serve
 
 ยังไม่ได้ทำ history เรื่องค่าใช้จ่ายยังตอบไม่ดี ยังไม่ได้ทำเรื่องข้อจำกัดในการตอบ
+
+
+python -m uvicorn main:app --reload
+
+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

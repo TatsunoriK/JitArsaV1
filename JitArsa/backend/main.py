@@ -7,6 +7,10 @@ import sys
 import io
 import logging
 import httpx
+import asyncio
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from typing import List, Optional
 from fastapi import FastAPI
@@ -54,9 +58,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATASET_PATH = os.path.join(BASE_DIR, "data/jitarsa.json")
 EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
-OLLAMA_URL = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "qwen2.5:3b"
-OLLAMA_TIMEOUT = 300
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_TIMEOUT = 60
 
 # Chunk config
 CHUNK_SIZE = 500
@@ -397,43 +401,112 @@ def build_context(found_docs, max_items=5) -> str:
     return "\n".join(lines)
 
 
-def ask_llm(question: str, context: str) -> str:
-    system_persona = """
-คุณคือ "น้องภา" (Nop Napha) อาสาสมัครอัจฉริยะที่ร่าเริง แจ่มใส และใจดี 
-หน้าที่ของคุณคือช่วยหาข้อมูลงานอาสาจากบริบทที่ให้ไว้ 
+SYSTEM_PERSONA = """
+คุณชื่อภา (นพนภา) เป็นเพื่อนที่ช่วยหางานอาสาสมัครให้
 
-สไตล์การตอบกลับ:
-- ใช้ภาษาที่เป็นกันเองเหมือนเพื่อน (เช่น ใช้คำว่า "จ้า", "น้า", "นะคะ", "ภาว่า...")
-- หากคำถามเป็นการทักทาย (เช่น สวัสดี, ทำอะไรอยู่) ให้ตอบทักทายอย่างร่าเริงก่อนแล้วค่อยชวนเข้าเรื่องงานอาสา
-- สามารถแสดงความเห็นใจหรือให้กำลังใจได้เล็กน้อย (เช่น "ว้าว งานนี้น่าสนุกมากเลยค่ะ", "สู้ๆ นะคะ ภาเป็นกำลังใจให้")
-- หากไม่พบข้อมูลงานอาสาที่ตรงใจ ให้ตอบอย่างสุภาพและลองแนะนำงานที่ใกล้เคียง หรือบอกว่า "เสียดายจัง ตอนนี้ยังไม่มีงานแบบนั้นเลย แต่ลองดูงานพวกนี้แทนไหมคะ?"
-- **ห้าม** ตอบสั้นห้วนเกินไป และ **ห้าม** หลุดจากบทบาทน้องภา
+พูดจาแบบนี้เลย: สบายๆ เหมือนแชทกับเพื่อน ไม่ต้องทางการ ใช้ภาษาวัยรุ่นได้บ้าง
+ใช้ "ภา" แทนตัวเอง ตอบสั้น ได้ใจความ ไม่ยืดยาด
+
+สิ่งที่ต้องจำ:
+- ถามชื่อ → บอกชื่อตัวเองสั้นๆ อย่าโชว์งานอาสา
+- ทักทาย → ทักกลับ จบ ไม่ต้องแนะนำอะไรเพิ่ม
+- ถามเรื่องจิตอาสา → ตอบสั้นๆ เป็นกันเอง ไม่ต้องต่อด้วยงาน
+- ถามงานแบบกว้างๆ → ถามกลับว่าสนใจแนวไหน แถวไหน ก่อน
+- ถามงานแบบระบุชัด → โชว์งานจากบริบทเลย ไม่เกิน 5 งาน
+- นอกเรื่อง → บอกสั้นๆ ว่าช่วยไม่ได้ จบ
+
+ตัวอย่างที่อยากให้ตอบแบบนี้:
+
+Q: หวัดดี
+A: หวัดดีค่ะ ไม่ทราบว่าอยากให้นพนภาช่วยเหลืออะไรไหมคะ😊
+
+Q: ชื่ออะไร
+A: ชื่อนพนภาค่ะ แต่เรียกแค่ภาได้นะคะ 😄
+
+Q: เป็นใคร ทำอะไร
+A: ภาช่วยหางานอาสาสมัครให้ค่ะ มีงานอยากหาไหม?
+
+Q: จิตอาสาคืออะไร
+A: ก็คือการช่วยคนอื่นโดยไม่หวังอะไรตอบแทนค่ะ ทำแล้วรู้สึกดีเองเลย 💛
+
+Q: ทำไมต้องทำอาสา
+A: ได้เจอคนใหม่ ได้ทำอะไรที่มีความหมายกว่าแค่นั่งอยู่บ้านค่ะ 😄
+
+Q: ไม่เคยทำเลย กลัวอ่ะ
+A: ไม่เป็นไรเลยค่ะ ทุกคนก็เริ่มจากศูนย์กัน ลองบอกภาว่าสนใจแนวไหน แล้วภาจะหาให้ค่ะ 💪
+
+Q: มีงานอาสาไหม
+A: มีเยอะเลยค่ะ 😊 อยากได้แนวไหนบ้าง เช่น ช่วยเด็ก สิ่งแวดล้อม หรือทำที่บ้านก็ได้นะ?
+
+Q: งานอาสาแถวเชียงใหม่มีไหม
+A: [แสดงงานจากบริบทได้เลย]
+
+Q: งานฟรีมีไหม
+A: [แสดงงานที่ไม่มีค่าใช้จ่ายจากบริบท]
+
+Q: อยากกินมาม่า
+A: ฮ่าๆ ภาดูแค่งานอาสานะคะ 😅
+
+Q: ช่วยทำการบ้านหน่อย
+A: ทำไม่ได้ค่ะ ภาเชี่ยวแค่งานอาสา 😄
+
+Q: หาไม่เจอเลย
+A: โอ๊ะ ขอโทษนะคะ 😅 ลองบอกเพิ่มได้ไหม เช่น จังหวัด หรือแนวงานที่อยากได้?
+
+รูปแบบแสดงงาน (ถ้าต้องโชว์):
+- ชื่องาน
+  📅 วันที่ | 📍 สถานที่
+  🔗 ลิงก์
+
+ห้ามแต่งข้อมูลงานที่ไม่มีในบริบทเด็ดขาด
 """
 
-    if not context:
-        prompt = f"{system_persona}\n\nคำถาม: {question}\n(หมายเหตุ: คำถามนี้อาจเป็นการชวนคุยทั่วไป ให้คุณตอบในฐานะน้องภาอย่างเป็นธรรมชาติ)"
+
+def build_groq_messages(question: str, context: str, history: list) -> list:
+    messages = [{"role": "system", "content": SYSTEM_PERSONA}]
+    for h in (history or []):
+        role = "assistant" if h.role != "user" else "user"
+        messages.append({"role": role, "content": h.content})
+    if context:
+        messages.append({"role": "user", "content": f"คำถาม: {question}\n\nงานอาสาที่เกี่ยวข้อง:\n{context}"})
     else:
-        prompt = f"{system_persona}\n\nคำถาม: {question}\nบริบทงานอาสา:\n{context}"
+        messages.append({"role": "user", "content": question})
+    return messages
 
-    return prompt
 
-
-async def ollama_stream_generator(prompt):
-    async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT) as client:
-        async with client.stream("POST", OLLAMA_URL, json={
-            "model": OLLAMA_MODEL,
-            "prompt": prompt,
-            "stream": True
-        }) as r:
+async def groq_stream_generator(question: str, context: str, history: list):
+    messages = build_groq_messages(question, context, history)
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    body = {
+        "model": GROQ_MODEL,
+        "messages": messages,
+        "max_tokens": 600,
+        "temperature": 0.7,
+        "stream": True,
+    }
+    async with httpx.AsyncClient(timeout=GROQ_TIMEOUT) as client:
+        async with client.stream("POST", "https://api.groq.com/openai/v1/chat/completions",
+                                 headers=headers, json=body) as r:
+            r.raise_for_status()
             async for line in r.aiter_lines():
-                if line:
-                    chunk = json.loads(line)
-                    content = chunk.get("response", "")
-                    if content:
-                        yield content
+                if line.startswith("data:"):
+                    payload = line[5:].strip()
+                    if not payload or payload == "[DONE]":
+                        continue
+                    try:
+                        chunk = json.loads(payload)
+                        text = chunk["choices"][0]["delta"].get("content", "")
+                        if text:
+                            yield text
+                    except Exception:
+                        continue
 
 
-def ask_rag(question: str) -> str:
+def ask_rag(question: str) -> tuple[str, list]:
+    """Returns (context_str, found_docs)"""
     global docs, retriever
 
     want_province = detect_province_in_query(question)
@@ -444,16 +517,13 @@ def ask_rag(question: str) -> str:
     else:
         query = enhance_query(question)
         found = retriever.invoke(query)
-        print(f"question = {question}")
-        print(f"enhanced query = {query}")
-        print(f"before filter = {len(found)}")
+        print(f"question = {question}, enhanced = {query}, before filter = {len(found)}")
         found = filter_docs(found, question)
 
     found = deduplicate_docs(found)
     print(f"after dedup = {len(found)}")
-
     context = build_context(found)
-    return ask_llm(question, context)
+    return context, found
 
 
 # ===============================
@@ -477,39 +547,20 @@ def root():
 
 @app.post("/ask-pha")
 async def ask_api(data: QuestionRequest):
-
     try:
-        prompt = ask_rag(data.question)
-        if not prompt:
-            return {"answer": "ภาหาข้อมูลที่เกี่ยวข้องไม่เจอเลย ลองถามแบบอื่นดูไหม?"}
+        context, _ = ask_rag(data.question)
 
-        async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT) as client:
-            response = await client.post(
-                OLLAMA_URL,
-                json={
-                    "model": OLLAMA_MODEL,
-                    "prompt": prompt,
-                    "stream": False
-                }
-            )
+        async def stream_response():
+            async for chunk in groq_stream_generator(data.question, context, data.history or []):
+                yield chunk
 
-        response.raise_for_status()
-        result = response.json()
-
-        final_answer = result.get("response", "").strip()
-
-        if not final_answer:
-            print("Debug: Ollama returned empty response")
-            return {"answer": "ขอโทษนะ ภามึนไปนิดนึง เลยยังไม่มีคำตอบให้เลย"}
-
-        return {"answer": final_answer}
+        return StreamingResponse(stream_response(), media_type="text/plain; charset=utf-8")
 
     except httpx.TimeoutException:
-        return {"answer": "ภาใช้เวลาคิดนานเกินไป (Timeout) ลองถามสั้นลงหน่อยนะ"}
+        return {"answer": "ภาคิดช้าไปหน่อย ลองถามใหม่นะคะ 🙏"}
     except httpx.HTTPStatusError as e:
-        print(
-            f"Ollama HTTP error: {e.response.status_code} - {e.response.text}")
-        return {"answer": f"Ollama ตอบกลับผิดปกติ (status {e.response.status_code})"}
+        print(f"Gemini HTTP error: {e.response.status_code} - {e.response.text}")
+        return {"answer": "เชื่อมต่อ Gemini ไม่ได้ ลองใหม่อีกทีนะคะ"}
     except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        return {"answer": f"เกิดข้อผิดพลาดภายใน: {str(e)}"}
+        print(f"Error: {e}")
+        return {"answer": f"เกิดข้อผิดพลาด: {str(e)}"}
