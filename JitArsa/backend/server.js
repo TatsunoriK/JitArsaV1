@@ -11,11 +11,10 @@ app.post("/ask-pha", async (req, res) => {
   try {
     const { question, history } = req.body;
 
-    // timeout
     const controller = new AbortController();
     const timeout = setTimeout(() => {
       controller.abort();
-    }, 60000);
+    }, 300000);
 
     const response = await fetch("http://localhost:8000/ask-pha", {
       method: "POST",
@@ -40,9 +39,7 @@ app.post("/ask-pha", async (req, res) => {
     console.error("FULL ERROR:", error);
 
     if (error.name === "AbortError") {
-      return res
-        .status(504)
-        .json({ error: "Python ใช้เวลานานเกินไป (timeout)" });
+      return res.status(504).json({ error: "Python ใช้เวลานานเกินไป (timeout)" });
     }
 
     res.status(500).json({
@@ -56,9 +53,13 @@ app.get("/ask-pha", (req, res) => {
   res.send("Use POST method instead");
 });
 
-mongoose.connect(process.env.MONGO_URI).then(() => {
-  console.log("Mongo connected");
-  app.listen(port, () => {
-    console.log(`Server running at http://localhost:${port}`);
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => {
+    console.log("Mongo connected");
+    app.listen(port, () => {
+      console.log(`Server running at http://localhost:${port}`);
+    });
+  })
+  .catch((err) => {
+    console.error("MongoDB connection error:", err.message);
   });
-});

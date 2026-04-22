@@ -55,7 +55,7 @@ DATASET_PATH = os.path.join(BASE_DIR, "data/jitarsa.json")
 EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "qwen3"
+OLLAMA_MODEL = "qwen2.5:3b"
 OLLAMA_TIMEOUT = 300
 
 # Chunk config
