@@ -14,3 +14,11 @@ ollama serve
 python -m uvicorn main:app --reload
 
 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
+
+
+.env
+MONGO_URI=mongodb+srv://benchawanpoo_db_user:x8tohVR0cmKW1rzw@cluster0.obbcnew.mongodb.net/jitarsachatbotdb?retryWrites=true&w=majority
+GEMINI_API_KEY=AIzaSyCMtcatcvp72MCrKllIKtBXB1gb1iX49Gg
+GEMINI_API_KEY2=AIzaSyAQFNRb2lCzssE0UP7TQ575OUMSEayo5yw
+GEMINI_API_KEY3=AIzaSyB0r8FTitraX-2-cv1JVZNTlqCh0JDpy4U
+GROQ_API_KEY=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
