@@ -15,43 +15,50 @@ export default function Chatbot() {
     const question = input.trim();
     if (!question || loading) return;
 
-    const userMsg = { id: Date.now(), role: "user", text: question };
+    const userMsg = {
+      id: `user-${Date.now()}-${Math.random()}`,
+      role: "user",
+      text: question,
+    };
 
-    let updatedMessages =
-      messages.length === 0
-        ? [
-            {
-              id: Date.now() - 1,
-              role: "bot",
-              text: "สวัสดี ! วันนี้มีอะไรจะถามภาหรอ ?",
-            },
-            userMsg,
-          ]
-        : [...messages, userMsg];
+    let updatedMessages;
+    if (messages.length === 0) {
+      updatedMessages = [
+        {
+          id: `bot-greeting`,
+          role: "bot",
+          text: "สวัสดี ! วันนี้มีอะไรจะถามภาหรอ ?",
+        },
+        userMsg,
+      ];
+    } else {
+      updatedMessages = [...messages, userMsg];
+    }
 
     setMessages(updatedMessages);
     setInput("");
     setLoading(true);
 
-    const history = updatedMessages.map((m) => ({
-      role: m.role === "bot" ? "assistant" : "user",
-      content: m.text,
-    }));
+    // const history = updatedMessages.map((m) => ({
+    //   role: m.role === "bot" ? "assistant" : "user",
+    //   content: m.text,
+    // }));
 
     const PLACEHOLDER_ID = "loading-placeholder";
-    setMessages((prev) => [
-      ...prev,
-      { id: PLACEHOLDER_ID, role: "bot", text: "รอภาหน่อยน้า" },
-    ]);
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/ask-pha", {
+      const res = await fetch("/ask-pha", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question, history }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          question: input,
+          history: [],
+        }),
       });
 
-      if (!res.ok) throw new Error("Server error");
+      if (!res.ok) throw new Error(`Server error: ${res.status}`);
       const data = await res.json();
 
       const replies = (data.answer || "ขอโทษนะ ภาหาคำตอบไม่เจอ")
@@ -62,7 +69,7 @@ export default function Chatbot() {
       setMessages((prev) => [
         ...prev.filter((m) => m.id !== PLACEHOLDER_ID),
         ...replies.map((text, i) => ({
-          id: Date.now() + i,
+          id: `bot-${Date.now()}-${i}`,
           role: "bot",
           text,
         })),
@@ -72,7 +79,7 @@ export default function Chatbot() {
       setMessages((prev) => [
         ...prev.filter((m) => m.id !== PLACEHOLDER_ID),
         {
-          id: Date.now(),
+          id: `bot-error-${Date.now()}`,
           role: "bot",
           text: "เชื่อมต่อ backend ไม่ได้ ลองใหม่อีกทีนะ",
         },

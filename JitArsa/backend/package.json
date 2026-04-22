@@ -38,6 +38,7 @@
     "deep-is": "^0.1.4",
     "depd": "^2.0.0",
     "detect-libc": "^2.1.2",
+    "dotenv": "^17.4.2",
     "dunder-proto": "^1.0.1",
     "ecdsa-sig-formatter": "^1.0.11",
     "ee-first": "^1.1.1",
@@ -130,6 +131,7 @@
     "mime-db": "^1.54.0",
     "mime-types": "^3.0.2",
     "minimatch": "^3.1.5",
+    "mongoose": "^9.5.0",
     "ms": "^2.1.3",
     "nanoid": "^3.3.11",
     "natural-compare": "^1.4.0",
@@ -204,7 +206,7 @@
   "scripts": {
     "start:node": "node server.js",
     "start:python": "uvicorn main:app --reload --port 8000",
-    "all": "concurrently -n NODE,PYTHON,REACT -c bgBlue,bgGreen,bgCyan \"npm run start:node\""
+    "all": "concurrently -n NODE,PYTHON,REACT -c bgBlue,bgGreen,bgCyan \"npm run start:node\" \"npm run start:python\" \"npm run start:react\""
   },
   "keywords": [],
   "author": "",

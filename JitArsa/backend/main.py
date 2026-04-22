@@ -1,4 +1,4 @@
-from typing import List, Optional
+import httpx
 import os
 import requests
 import pandas as pd
@@ -6,7 +6,9 @@ import json
 import sys
 import io
 import logging
+import httpx
 
+from typing import List, Optional
 from fastapi import FastAPI
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,6 +26,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 transformers_logging.set_verbosity_error()
 
+
 def safe_print(*args, **kwargs):
     try:
         print(*args, **kwargs)
@@ -38,7 +41,7 @@ def safe_print(*args, **kwargs):
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -52,7 +55,7 @@ DATASET_PATH = os.path.join(BASE_DIR, "data/jitarsa.json")
 EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "qwen3.5"
+OLLAMA_MODEL = "qwen3"
 OLLAMA_TIMEOUT = 300
 
 # Chunk config
@@ -118,10 +121,11 @@ class QuestionRequest(BaseModel):
     question: str
     history: Optional[List[HistoryMessage]] = []
 
-
 # ===============================
 # 5) HELPERS
 # ===============================
+
+
 def extract_provinces(text: str) -> list:
     if not text or pd.isna(text):
         return []
@@ -415,17 +419,18 @@ def ask_llm(question: str, context: str) -> str:
 
 
 async def ollama_stream_generator(prompt):
-    with requests.post(OLLAMA_URL, json={
-        "model": OLLAMA_MODEL,
-        "prompt": prompt,
-        "stream": True
-    }, stream=True) as r:
-        for line in r.iter_lines():
-            if line:
-                chunk = json.loads(line)
-                content = chunk.get("response", "")
-                if content:
-                    yield content
+    async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT) as client:
+        async with client.stream("POST", OLLAMA_URL, json={
+            "model": OLLAMA_MODEL,
+            "prompt": prompt,
+            "stream": True
+        }) as r:
+            async for line in r.aiter_lines():
+                if line:
+                    chunk = json.loads(line)
+                    content = chunk.get("response", "")
+                    if content:
+                        yield content
 
 
 def ask_rag(question: str) -> str:
@@ -472,13 +477,39 @@ def root():
 
 @app.post("/ask-pha")
 async def ask_api(data: QuestionRequest):
-    prompt = ask_rag(data.question)
 
-    response = requests.post(OLLAMA_URL, json={
-        "model": OLLAMA_MODEL,
-        "prompt": prompt,
-        "stream": False
-    }, timeout=OLLAMA_TIMEOUT)
+    try:
+        prompt = ask_rag(data.question)
+        if not prompt:
+            return {"answer": "ภาหาข้อมูลที่เกี่ยวข้องไม่เจอเลย ลองถามแบบอื่นดูไหม?"}
 
-    result = response.json()
-    return {"answer": result.get("response", "")}
+        async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT) as client:
+            response = await client.post(
+                OLLAMA_URL,
+                json={
+                    "model": OLLAMA_MODEL,
+                    "prompt": prompt,
+                    "stream": False
+                }
+            )
+
+        response.raise_for_status()
+        result = response.json()
+
+        final_answer = result.get("response", "").strip()
+
+        if not final_answer:
+            print("Debug: Ollama returned empty response")
+            return {"answer": "ขอโทษนะ ภามึนไปนิดนึง เลยยังไม่มีคำตอบให้เลย"}
+
+        return {"answer": final_answer}
+
+    except httpx.TimeoutException:
+        return {"answer": "ภาใช้เวลาคิดนานเกินไป (Timeout) ลองถามสั้นลงหน่อยนะ"}
+    except httpx.HTTPStatusError as e:
+        print(
+            f"Ollama HTTP error: {e.response.status_code} - {e.response.text}")
+        return {"answer": f"Ollama ตอบกลับผิดปกติ (status {e.response.status_code})"}
+    except Exception as e:
+        print(f"Error occurred: {str(e)}")
+        return {"answer": f"เกิดข้อผิดพลาดภายใน: {str(e)}"}
