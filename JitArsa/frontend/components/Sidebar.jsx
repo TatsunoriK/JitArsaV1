@@ -6,8 +6,13 @@ function Sidebar() {
 
   return (
     <div
-      className="w-73 h-screen flex flex-col p-4 border-r"
-      style={{ background: "#fff", borderColor: "#c8d9f0" }}
+      className="w-72 h-screen flex flex-col px-4 py-4 border-r"
+      style={{
+        background: "rgba(255,255,255,0.6)",
+        backdropFilter: "blur(16px)",
+        WebkitBackdropFilter: "blur(16px)",
+        borderRight: "1px solid rgba(172,177,214,0.4)",
+      }}
     >
       {/* Header */}
       <div className="flex items-center gap-2 mb-4">
@@ -17,9 +22,9 @@ function Sidebar() {
           className="w-9 h-9 rounded-full object-cover border-2 border-[#ACB1D6]/40"
         />
         <div className="leading-tight">
-          <h5 className="text-sm font-medium mt-0" style={{ color: "#185fa5" }}>
+          <h4 className="text-sm font-medium mt-0" style={{ color: "#185fa5" }}>
             Nop Napha
-          </h5>
+          </h4>
         </div>
       </div>
 
@@ -36,12 +41,12 @@ function Sidebar() {
         <p className="text-base leading-relaxed" style={{ color: "#5f5e5a" }}>
           มีอะไรอยากถามเกี่ยวกับงานอาสาไหม?
           <br />
-          ลองพิมพ์คำถามหรือเลือกคำแนะนำได้เลย!
+          พิมพ์คำถามหรือเลือกคำแนะนำได้เลย!
         </p>
       </div>
 
       {/* Nav */}
-      <Link
+      {/* <Link
         to="/"
         className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border text-sm font-medium"
         style={{
@@ -51,7 +56,7 @@ function Sidebar() {
         }}
       >
         <span className="text-base">Chat</span>
-      </Link>
+      </Link> */}
 
       <div className="flex-1" />
 
@@ -64,7 +69,7 @@ function Sidebar() {
           <>
             {/* User Card */}
             <div
-              className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border"
+              className="flex items-center gap-2.5 px-3 py-2 mb-2 rounded-xl border"
               style={{ background: "#fff", borderColor: "#c8d9f0" }}
             >
               <i className="bi bi-person-fill text-[#185fa5] text-base"></i>
@@ -84,7 +89,7 @@ function Sidebar() {
                 localStorage.removeItem("jp_username");
                 window.location.reload();
               }}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border transition hover:opacity-80"
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl border transition hover:opacity-80"
               style={{
                 color: "#a32d2d",
                 borderColor: "#f0c1c1",
@@ -102,14 +107,13 @@ function Sidebar() {
             {/* Login Button */}
             <Link
               to="/login"
-              className="w-full flex items-center justify-center gap-2.5 px-3 py-2.5 rounded-xl border transition hover:opacity-80"
+              className="w-full flex items-center justify-center gap-2.5 px-3 py-2 rounded-xl border transition hover:opacity-80 no-underline hover:no-underline"
               style={{
                 background: "#fff",
                 borderColor: "#c8d9f0",
                 color: "#185fa5",
               }}
             >
-              <i className="bi bi-box-arrow-in-right text-base"></i>
               <span className="text-sm font-medium">Login</span>
             </Link>
           </>

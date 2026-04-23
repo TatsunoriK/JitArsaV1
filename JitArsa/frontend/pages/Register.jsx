@@ -9,7 +9,7 @@ export default function Register() {
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -453,7 +453,7 @@ export default function Register() {
               </div>
             </div>
 
-            {/* <div className="jp-field">
+            <div className="jp-field">
               <label className="jp-label" htmlFor="jp-password">
                 ยืนยันรหัสผ่าน
               </label>
@@ -479,7 +479,7 @@ export default function Register() {
                   {showPassword ? "🙈" : "👁️"}
                 </button>
               </div>
-            </div> */}
+            </div>
 
             {/* Error */}
             {error && (
