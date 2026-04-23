@@ -403,9 +403,9 @@ export default function Chatbot() {
         >
           <div className="relative">
             <img
-              src="/girl.png"
+              src="/IMG_5518.PNG"
               alt="team"
-              className="relative w-30 h-30 rounded-full object-cover border-2 border-white shadow-lg"
+              className="relative w-55 h-55 rounded-full object-cover"
             />
           </div>
 
