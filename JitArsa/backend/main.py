@@ -62,7 +62,6 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_MODEL = "llama-3.3-70b-versatile"
 GROQ_TIMEOUT = 60
 
-# Chunk config
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 100
 
@@ -72,7 +71,6 @@ CHUNK_OVERLAP = 100
 stopwords = set(thai_stopwords()) - {
     "กิจกรรม", "โครงการ", "สมัคร", "อาสาสมัคร"
 }
-
 
 PROVINCE_ALIAS = {
     "กทม": "กรุงเทพ",
@@ -84,7 +82,6 @@ PROVINCE_ALIAS = {
     "อยุธยา": "พระนครศรีอยุธยา",
 }
 
-# จังหวัด canonical ทั้งหมด
 ALL_PROVINCES = [
     "กรุงเทพ",
     "กระบี่", "กาญจนบุรี", "กาฬสินธุ์", "กำแพงเพชร",
@@ -115,7 +112,6 @@ retriever = None
 # 4) REQUEST MODEL
 # ===============================
 
-
 class HistoryMessage(BaseModel):
     role: str
     content: str
@@ -126,9 +122,62 @@ class QuestionRequest(BaseModel):
     history: Optional[List[HistoryMessage]] = []
 
 # ===============================
-# 5) HELPERS
+# 5) INTENT DETECTION
 # ===============================
 
+# คีย์เวิร์ดที่บ่งบอกว่าต้องการค้นหางาน
+SEARCH_KEYWORDS = [
+    "มีงาน", "หางาน", "แนะนำงาน", "งานอาสา", "กิจกรรม", "โครงการ",
+    "สมัคร", "ฟรี", "ออนไลน์", "ทำที่บ้าน", "เสาร์", "อาทิตย์",
+    "แถว", "ใกล้", "ที่ไหน", "แนวไหน", "ช่วยเด็ก", "ช่วยผู้สูงอายุ",
+    "สิ่งแวดล้อม", "สัตว์", "สอน", "ปลูก", "ทำความสะอาด",
+]
+
+# คีย์เวิร์ดที่บ่งบอกว่าเป็นคำถามทั่วไป ไม่ต้องดึง context งาน
+GENERAL_KEYWORDS = [
+    "สวัสดี", "หวัดดี", "ดีจ้า", "hello", "hi",
+    "ชื่ออะไร", "คุณคือ", "เป็นใคร", "ทำอะไร",
+    "จิตอาสาคืออะไร", "อาสาสมัครคืออะไร", "ทำไมต้อง",
+    "กลัว", "เหงา", "ไม่เคย", "ขอบคุณ", "บ๊ายบาย", "ลาก่อน",
+]
+
+def detect_intent(question: str, history: list) -> str:
+    """
+    คืนค่า: 'search' | 'general' | 'clarify'
+    - search: ต้องการค้นหางาน → ดึง context
+    - general: คำถามทั่วไป → ไม่ต้องดึง context
+    - clarify: ยังไม่ชัดเจน → ให้ LLM ถามกลับ
+    """
+    q = question.lower().strip()
+
+    # ตรวจ province ก่อน → ถ้าระบุจังหวัดมา = search แน่ๆ
+    if detect_province_in_query(question):
+        return "search"
+
+    # ตรวจ general keywords
+    for kw in GENERAL_KEYWORDS:
+        if kw in q:
+            return "general"
+
+    # ตรวจ search keywords
+    for kw in SEARCH_KEYWORDS:
+        if kw in q:
+            return "search"
+
+    # ดู history ว่ามีการถามเรื่องงานก่อนหน้าไหม → ถ้ามีแล้วมาตอบต่อ = search
+    if history:
+        recent = " ".join([h.content for h in history[-4:] if h.role == "user"]).lower()
+        for kw in SEARCH_KEYWORDS + ALL_PROVINCES:
+            if kw in recent:
+                return "search"
+
+    # default: ให้ LLM จัดการเองโดยไม่ดึง context
+    return "general"
+
+
+# ===============================
+# 6) HELPERS
+# ===============================
 
 def extract_provinces(text: str) -> list:
     if not text or pd.isna(text):
@@ -214,7 +263,6 @@ def preprocess(df):
 
     df["provinces_clean"] = df["provinces"].apply(clean)
 
-    # search_text สำหรับ doc หลัก (ไม่มี detail)
     def combine_search(r):
         return " ".join([
             str(r.get("title_clean", "")),
@@ -250,19 +298,16 @@ def build_vector(df):
             "doc_type": "main",
         }
 
-        # metadata fields รวมกัน
         all_docs.append(Document(
             page_content=row["search_text"],
             metadata=metadata,
         ))
 
-        # chunk จาก field รายละเอียด
         detail = str(row.get("รายละเอียด", "")).strip()
         if detail and detail != "ไม่ระบุ":
             chunks = splitter.split_text(detail)
             for i, chunk in enumerate(chunks):
-                chunk_meta = {**metadata,
-                              "doc_type": "detail", "chunk_index": i}
+                chunk_meta = {**metadata, "doc_type": "detail", "chunk_index": i}
                 all_docs.append(Document(
                     page_content=chunk,
                     metadata=chunk_meta,
@@ -309,14 +354,12 @@ def filter_docs(found_docs, q):
     want_online = "ออนไลน์" in q_norm or "ทำที่บ้าน" in q_norm
     want_not_online = "ไม่ออนไลน์" in q_norm or "ออนไซต์" in q_norm
     want_province = detect_province_in_query(q)
-    online_keywords = ["ออนไลน์", "online",
-                       "remote", "ทำที่บ้าน", "work from home"]
+    online_keywords = ["ออนไลน์", "online", "remote", "ทำที่บ้าน", "work from home"]
 
     if want_province:
         global docs
         results = []
         for d in docs:
-            # doc หลักสำหรับ province filter ป้องกัน duplicate จาก chunks
             if d.metadata.get("doc_type") != "main":
                 continue
             md = d.metadata
@@ -366,7 +409,6 @@ def filter_docs(found_docs, q):
 
 
 def deduplicate_docs(found_docs):
-    """Deduplicate โดยใช้ url เป็น key — chunk หลายอันของงานเดียวกันจะเหลือแค่อันเดียว"""
     seen = set()
     unique = []
     for d in found_docs:
@@ -401,234 +443,77 @@ def build_context(found_docs, max_items=5) -> str:
     return "\n".join(lines)
 
 
+# ===============================
+# SYSTEM PROMPT (ปรับให้ strict ขึ้น)
+# ===============================
 SYSTEM_PERSONA = """
-คุณชื่อ "ภา" (นพนภา) เป็นผู้ช่วยหางานอาสาสมัคร
+คุณชื่อ "ภา" (นพนภา) เป็นผู้ช่วยหางานอาสาสมัครเท่านั้น
 
-โทน:
-- เป็นกันเอง สุภาพ เหมือนเพื่อน
-- ใช้คำลงท้าย "ค่ะ"
-- แทนตัวเองว่า "ภา"
+โทน: เป็นกันเอง สุภาพ เหมือนเพื่อน ใช้คำลงท้าย "ค่ะ" แทนตัวเองว่า "ภา"
 
-สไตล์คำตอบ:
-- กระชับ (1-3 ประโยค)
-- ไม่ยืดเยื้อ
-- ไม่เป็นทางการเกินไป
+=== กฎเหล็ก (ห้ามฝ่าฝืนเด็ดขาด) ===
+1. ตอบสั้นเสมอ (1-3 ประโยค ยกเว้นแสดงรายการงาน)
+2. ห้ามแต่งข้อมูลงานขึ้นมาเอง — ใช้เฉพาะข้อมูลจาก [งานอาสาที่เกี่ยวข้อง] เท่านั้น
+3. ถ้า [งานอาสาที่เกี่ยวข้อง] ว่างเปล่า → ห้ามโชว์งาน บอกว่าหาไม่เจอแล้วเสนอถามเพิ่ม
+4. ห้ามพูดถึง AI / ระบบ / โมเดล / algorithm
+5. ถ้าคำถามไม่เกี่ยวกับงานอาสา → ปฏิเสธสุภาพ 1 ประโยค แล้วชวนกลับเรื่องงาน
+6. จำบริบทจาก history เสมอ — ถ้าผู้ใช้บอกพื้นที่/แนวงานไปแล้ว ห้ามถามซ้ำ
 
-=== กฎการตอบ ===
+=== การค้นหางาน ===
+-กรณีคำถามกว้างเกินไป: (เช่น "หางานให้หน่อย" หรือ "มีงานอะไรว่างบ้าง")
 
-1. ทักทาย / แนะนำตัว
-- ตอบสั้น สุภาพ
-- ห้ามเสนอหางานทันที
+-ผมจะยังไม่แสดงรายชื่อเนื้อหางาน แต่จะ ถามกลับ 1 คำถาม เพื่อสโคปความสนใจของคุณก่อนครับ
 
-2. คำถามทั่วไปเกี่ยวกับจิตอาสา
-- อธิบายสั้นๆ เข้าใจง่าย
-- ห้าม list งานอาสา
+-กรณีระบุแนวงานแต่ไม่ระบุพื้นที่: > ผมจะลอง ถามถึงพื้นที่ที่สนใจ หรือพื้นที่ที่คุณสะดวกเดินทาง เพื่อให้ได้งานที่ใกล้ตัวคุณที่สุด
 
-3. ค้นหางาน (กว้าง เช่น "มีงานไหม")
-- ห้ามแสดงงานทันทีเด็ดขาด
-- ต้องถามกลับอย่างน้อย 1 คำถามก่อนเสมอ
+-กรณีระบุพื้นที่แต่ไม่ระบุแนวงาน: > ผมจะ ถามถึงสายงานหรือทักษะ ที่คุณถนัด เพื่อคัดกรองงานที่เหมาะสมกับตัวบุคคลครับ
 
-4. ค้นหางาน (ระบุชัด)
-- ถ้าข้อมูลยังไม่ครบ → ถามเพิ่มก่อน
-- ถ้าข้อมูลครบ → แสดงงานได้ไม่เกิน 5 งาน
+-กรณีข้อมูลชัดเจน (แนวงาน + พื้นที่): > ผมจะ แสดงรายการงานทันที โดยจำกัดจำนวนไม่เกิน 5 ตำแหน่ง เพื่อให้ง่ายต่อการพิจารณาครับ
 
-รูปแบบแสดงงาน (ใช้แบบนี้เท่านั้น):
-- ชื่องาน
-  📅 วันที่ | 📍 สถานที่
-  🔗 ลิงก์
-
-5. ถ้าไม่มีข้อมูลงาน
-- ห้ามแต่งข้อมูล
-- แจ้งสั้นๆ และเสนอใกล้เคียง
-
-6. นอกขอบเขต
-- ปฏิเสธสุภาพ (1 ประโยค)
-- redirect ได้ไม่เกิน 1 ประโยค
-
-7. Context
-- จำ: ประเภท / พื้นที่ / เวลา
-- ถ้ามีแล้วไม่ถามซ้ำ
-
-=== กฎสำคัญ ===
-- ห้ามตอบยาว
-- ห้ามแต่งข้อมูลงาน
-- ห้ามใช้คำว่า AI / ระบบ / โมเดล
-- ห้ามใช้ภาษาทางการ
-
-====================================
-=== ตัวอย่าง Q/A ===
-====================================
-
-หมวด: ทักทาย / แนะนำตัว
+รูปแบบแสดงงาน (ใช้แบบนี้เท่านั้น ห้ามดัดแปลง):
+-[ชื่อกิจกรรม]
+[วันที่] [เวลา] | 
+📍 [สถานที่]
+[เบอร์ติดต่อ]
+[url]
+=== ตัวอย่าง ===
 
 Q: หวัดดี
-A: หวัดดีค่ะ อยากให้ภาช่วยอะไรดีคะ 😊
-
-Q: ชื่ออะไร
-A: ชื่อนพนภาค่ะ เรียกสั้นๆ ว่าภาได้เลย 😄
-
-Q: เป็นใคร ทำอะไร
-A: ภาช่วยหางานอาสาสมัครให้ค่ะ มีอะไรอยากลองทำไหม?
-
-------------------------------------
-
-หมวด: ความรู้
-
-Q: จิตอาสาคืออะไร
-A: คือการช่วยคนอื่นโดยไม่หวังผลตอบแทนค่ะ ทำแล้วรู้สึกดีเอง 💛
-
-Q: ทำไมต้องทำอาสา
-A: ได้ช่วยคนอื่น ได้ประสบการณ์ใหม่ๆ แล้วก็รู้สึกมีคุณค่าขึ้นค่ะ
-
-------------------------------------
-
-หมวด: ความกังวล
-
-Q: ไม่เคยทำเลย กลัว
-A: ไม่เป็นไรเลยค่ะ ทุกคนก็เริ่มจากศูนย์ ลองเริ่มงานง่ายๆ ก่อนไหม ภาหาให้ได้ค่ะ 💪
-
-Q: ไปคนเดียวจะเหงาไหม
-A: ไม่เหงาเลยค่ะ ไปหน้างานก็ได้เพื่อนใหม่แน่นอน!
-
-Q: งานหนักไหม
-A: มีทั้งเบาและลุยเลยค่ะ บอกภาได้ว่าอยากชิลหรืออยากลุยนะ
-
-Q: เข้าสังคมไม่เก่ง
-A: งั้นลองงานเบื้องหลังไหมคะ แบบไม่ต้องเจอคนเยอะ ภาหาให้ได้ค่ะ
-
-------------------------------------
-
-หมวด: ค้นหางาน (กว้าง)
+A: หวัดดีค่ะ 😊 อยากให้ภาช่วยหางานอาสาไหมคะ?
 
 Q: มีงานอาสาไหม
-A: มีค่ะ 😊 สนใจแนวไหน หรือสะดวกแถวไหนคะ?
+A: มีค่ะ สนใจแนวไหน หรืออยากทำแถวไหนบอกภาได้เลยนะคะ 😊
 
-Q: มีอะไรแนะนำไหม
-A: ได้เลยค่ะ อยากได้แนวไหน หรืออยากทำแถวไหนบอกภาได้เลยนะ
+Q: มีงานแถวเชียงใหม่ช่วยเด็กไหม
+A: [แสดงงานจาก context ที่ได้รับเท่านั้น]
 
-------------------------------------
+Q: อยากกินข้าว
+A: ฮ่าๆ ภาช่วยได้แค่เรื่องงานอาสานะคะ 😅 มีอะไรอยากลองทำไหมคะ?
 
-หมวด: ค้นหางาน (กึ่งชัด)
-
-Q: มีงานแถวเชียงใหม่ไหม
-A: ได้เลยค่ะ สนใจแนวไหนเป็นพิเศษไหม เช่น เด็ก หรือสิ่งแวดล้อมคะ?
-
-Q: มีงานช่วยเด็กไหม
-A: มีค่ะ 😊 สะดวกทำแถวไหน หรือช่วงเวลาไหนคะ?
-
-------------------------------------
-
-หมวด: เงื่อนไขเฉพาะ
-
-Q: งานฟรีมีไหม
-A: มีค่ะ 😊 อยากได้แนวไหน หรือแถวไหนเพิ่มเติมไหมคะ?
-
-Q: มีเกียรติบัตรไหม
-A: มีค่ะ ส่วนใหญ่มีให้สะสมพอร์ตเลย สนใจแนวไหนคะ?
-
-Q: ทำออนไลน์ได้ไหม
-A: มีค่ะ แบบไม่ต้องเดินทางเลย สนใจลองไหมคะ?
-
-Q: ทำเสาร์อาทิตย์ได้ไหม
-A: มีค่ะ ช่วงนี้ฮิตเลย สนใจแถวไหนบอกภาได้เลยนะ
-
-------------------------------------
-
-หมวด: รายละเอียดงาน
-
-Q: ต้องทำอะไรบ้าง
-A: งานนี้หลักๆ คือ [หน้าที่ตามบริบท] ค่ะ เดี๋ยวภาเช็กให้ละเอียดอีกทีนะ
-
-Q: ต้องเตรียมอะไร
-A: ส่วนใหญ่แค่พกใจไปก็พอค่ะ บางงานอาจมีอุปกรณ์เพิ่ม เดี๋ยวภาดูให้ค่ะ
-
-Q: ต้องใส่อะไร
-A: เน้นสุภาพ เคลื่อนไหวสะดวกค่ะ ถ้าเป็นงานลุยแนะนำรองเท้าผ้าใบ
-
-------------------------------------
-
-หมวด: สมัคร / ปัญหา
-
-Q: สมัครยังไง
-A: กดลิงก์ที่ภาส่งได้เลยค่ะ ในนั้นมีวิธีสมัครครบเลย
-
-Q: ลิงก์เข้าไม่ได้
-A: ลองรีเฟรชดูก่อนนะคะ ถ้ายังไม่ได้บอกภา เดี๋ยวหาลิงก์ใหม่ให้
-
-Q: สมัครแล้วทำไงต่อ
-A: รอทีมงานติดต่อกลับตามช่องทางที่ให้ไว้ได้เลยค่ะ 😊
-
-------------------------------------
-
-หมวด: สถานะงาน
-
-Q: งานเต็มยัง
-A: เดี๋ยวภาเช็กให้นะคะ… ถ้ายังว่างรีบสมัครเลยนะ
-
-Q: สมัครไม่ทัน
-A: ไม่เป็นไรนะคะ เดี๋ยวภาหางานคล้ายๆ กันให้แทนค่ะ
-
-------------------------------------
-
-หมวด: สิทธิประโยชน์
-
-Q: มีข้าวไหม
-A: แล้วแต่งานเลยค่ะ เดี๋ยวภาเช็กให้ในรายละเอียดนะ
-
-Q: มีค่ารถไหม
-A: ส่วนใหญ่ไม่มีค่ะ แต่บางงานมีสวัสดิการนิดหน่อย เดี๋ยวดูให้ค่ะ
-
-------------------------------------
-
-หมวด: เปลี่ยนใจ
-
-Q: ไม่อยากทำแนวนี้แล้ว
-A: ได้เลยค่ะ งั้นลองเปลี่ยนแนวใหม่ไหม บอกภาได้เลยนะ
-
-Q: มีงานอื่นไหม
-A: มีอีกเยอะเลยค่ะ อยากให้ภาเน้นแนวไหนเพิ่มไหม?
-
-------------------------------------
-
-หมวด: ปัญหา
-
-Q: หาไม่เจอ
-A: โอ๊ะ ขอโทษนะคะ ลองบอกเพิ่มได้ไหม เช่น พื้นที่หรือแนวงาน
-
-------------------------------------
-
-หมวด: นอกขอบเขต
-
-Q: อยากกินมาม่า
-A: ฮ่าๆ ภาช่วยเรื่องงานอาสานะคะ 😅 ลองมาหางานทำแก้เบื่อไหมคะ
-
-Q: ช่วยทำการบ้าน
-A: ภาช่วยเรื่องงานอาสาอย่างเดียวนะคะ 😄
-
-Q: ยืมตังค์
-A: ภาไม่มีตังค์ มีแต่งานอาสาค่ะ 😅
-
-------------------------------------
-
-หมวด: ปิดบทสนทนา
-
-Q: ขอบคุณนะ
-A: ยินดีเสมอค่ะ 😊 มีอะไรให้ช่วยอีกทักมาได้เลยนะ
-
-Q: เดี๋ยวมาถามใหม่
-A: ได้เลยค่ะ ภารออยู่ตรงนี้นะ บ๊ายบาย!
+Q: ทำข้อความไม่ต่อเนื่อง
+A: ภาไม่แน่ใจว่าหมายถึงอะไรเลยค่ะ อยากให้ภาช่วยหางานอาสาไหมคะ?
 """
 
 
 def build_groq_messages(question: str, context: str, history: list) -> list:
     messages = [{"role": "system", "content": SYSTEM_PERSONA}]
+
+    # ใส่ history ทั้งหมด (ไม่ตัดทิ้ง) เพื่อให้ LLM จำบริบท
     for h in (history or []):
         role = "assistant" if h.role != "user" else "user"
         messages.append({"role": role, "content": h.content})
+
+    # คำถามปัจจุบัน + context (ถ้ามี)
     if context:
-        messages.append({"role": "user", "content": f"คำถาม: {question}\n\nงานอาสาที่เกี่ยวข้อง:\n{context}"})
+        user_msg = (
+            f"คำถาม: {question}\n\n"
+            f"[งานอาสาที่เกี่ยวข้อง]\n{context}\n\n"
+            f"ตอบโดยใช้ข้อมูลจาก [งานอาสาที่เกี่ยวข้อง] เท่านั้น ห้ามแต่งข้อมูลเพิ่ม"
+        )
     else:
-        messages.append({"role": "user", "content": question})
+        user_msg = question
+
+    messages.append({"role": "user", "content": user_msg})
     return messages
 
 
@@ -642,12 +527,14 @@ async def groq_stream_generator(question: str, context: str, history: list):
         "model": GROQ_MODEL,
         "messages": messages,
         "max_tokens": 600,
-        "temperature": 0.7,
+        "temperature": 0.5,   # ลด temperature → ตอบมั่วน้อยลง
         "stream": True,
     }
     async with httpx.AsyncClient(timeout=GROQ_TIMEOUT) as client:
-        async with client.stream("POST", "https://api.groq.com/openai/v1/chat/completions",
-                                 headers=headers, json=body) as r:
+        async with client.stream(
+            "POST", "https://api.groq.com/openai/v1/chat/completions",
+            headers=headers, json=body
+        ) as r:
             r.raise_for_status()
             async for line in r.aiter_lines():
                 if line.startswith("data:"):
@@ -663,9 +550,18 @@ async def groq_stream_generator(question: str, context: str, history: list):
                         continue
 
 
-def ask_rag(question: str) -> tuple[str, list]:
-    """Returns (context_str, found_docs)"""
+def ask_rag(question: str, history: list = None) -> tuple[str, list]:
+    """
+    Returns (context_str, found_docs)
+    ใช้ intent detection ก่อนเสมอ — ถ้าไม่ใช่ search intent ไม่ดึง context
+    """
     global docs, retriever
+
+    intent = detect_intent(question, history or [])
+    print(f"intent = {intent}")
+
+    if intent == "general":
+        return "", []
 
     want_province = detect_province_in_query(question)
 
@@ -673,10 +569,19 @@ def ask_rag(question: str) -> tuple[str, list]:
         print(f"Province mode: {want_province}")
         found = filter_docs([], question)
     else:
-        query = enhance_query(question)
+        # รวม history ล่าสุดเข้า query เพื่อให้จำบริบท เช่น จังหวัดที่เคยบอกไว้
+        context_query = question
+        if history:
+            prev_user = " ".join([
+                h.content for h in history[-6:]
+                if h.role == "user"
+            ])
+            context_query = prev_user + " " + question
+
+        query = enhance_query(context_query)
         found = retriever.invoke(query)
-        print(f"question = {question}, enhanced = {query}, before filter = {len(found)}")
-        found = filter_docs(found, question)
+        print(f"question={question}, enhanced={query}, before filter={len(found)}")
+        found = filter_docs(found, context_query)
 
     found = deduplicate_docs(found)
     print(f"after dedup = {len(found)}")
@@ -685,7 +590,7 @@ def ask_rag(question: str) -> tuple[str, list]:
 
 
 # ===============================
-# 6) STARTUP
+# 7) STARTUP
 # ===============================
 @app.on_event("startup")
 def startup_event():
@@ -696,7 +601,7 @@ def startup_event():
 
 
 # ===============================
-# 7) ROUTES
+# 8) ROUTES
 # ===============================
 @app.get("/")
 def root():
@@ -706,19 +611,25 @@ def root():
 @app.post("/ask-pha")
 async def ask_api(data: QuestionRequest):
     try:
-        context, _ = ask_rag(data.question)
+        # ส่ง history เข้าไปใน ask_rag ด้วย เพื่อดึง context ได้แม่นขึ้น
+        context, _ = ask_rag(data.question, data.history or [])
 
         async def stream_response():
-            async for chunk in groq_stream_generator(data.question, context, data.history or []):
+            async for chunk in groq_stream_generator(
+                data.question, context, data.history or []
+            ):
                 yield chunk
 
-        return StreamingResponse(stream_response(), media_type="text/plain; charset=utf-8")
+        return StreamingResponse(
+            stream_response(),
+            media_type="text/plain; charset=utf-8"
+        )
 
     except httpx.TimeoutException:
         return {"answer": "ภาคิดช้าไปหน่อย ลองถามใหม่นะคะ 🙏"}
     except httpx.HTTPStatusError as e:
-        print(f"Gemini HTTP error: {e.response.status_code} - {e.response.text}")
-        return {"answer": "เชื่อมต่อ Gemini ไม่ได้ ลองใหม่อีกทีนะคะ"}
+        print(f"HTTP error: {e.response.status_code} - {e.response.text}")
+        return {"answer": "เชื่อมต่อไม่ได้ ลองใหม่อีกทีนะคะ"}
     except Exception as e:
         print(f"Error: {e}")
         return {"answer": f"เกิดข้อผิดพลาด: {str(e)}"}
