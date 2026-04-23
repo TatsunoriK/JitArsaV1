@@ -27,9 +27,11 @@ mongoose
     console.error("MongoDB connection error:", err.message);
   });
 
+// /ask-pha
 app.post("/ask-pha", async (req, res) => {
   try {
-    const { question, history } = req.body;
+    const { question, history,sessionId } = req.body;
+    await ChatMessages.create({ sessionId, role: 'user', content: question });
 
     // DEBUG: ตรวจว่า frontend ส่ง history มาครบไหม
     console.log("[DEBUG] question:", question);
@@ -47,6 +49,19 @@ app.post("/ask-pha", async (req, res) => {
         role: String(h.role),
         content: String(h.content),
       }));
+
+      const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let fullAiResponse = ""; // เก็บคำตอบเต็มไว้บันทึกลง DB
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      fullAiResponse += chunk;
+      res.write(chunk);
+    }
+    await ChatMessages.create({ sessionId, role: 'assistant', content: fullAiResponse });
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 60000);
@@ -100,9 +115,9 @@ app.get("/ask-pha", (req, res) => {
 app.post("/login", auth.login);
 app.post("/register", auth.register);
 
-app.get("/history", history.getChatHistory);
-app.get("/history/:sessionId", history.getChatMessages);
-app.delete("/history/:sessionId", history.deleteChat);
+app.get("/api/history", history.getChatHistory);
+app.get("/api/history/:sessionId", history.getChatMessages);
+app.delete("/api/history/:sessionId", history.deleteChat);
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);

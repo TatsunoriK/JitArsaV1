@@ -14,12 +14,11 @@ function Sidebar() {
 
   const fetchHistory = async () => {
     try {
-      const response = await fetch("http://localhost:3000/api/history", {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
+      const response = await fetch("http://localhost:5000/api/history");
+      const result = await response.json();
+      if (result.success) {
+        setChatHistory(result.data);
+      }
 
       if (!response.ok) {
         throw new Error("Network response was not ok");
