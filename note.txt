@@ -13,9 +13,6 @@ ollama serve
 
 python -m uvicorn main:app --reload
 
-.env
-MONGO_URI=mongodb+srv://aam:123@cluster0.obbcnew.mongodb.net/?appName=Cluster0
-
 login
 aam
 123
