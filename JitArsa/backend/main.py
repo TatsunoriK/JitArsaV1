@@ -8,6 +8,8 @@ import io
 import logging
 import httpx
 import asyncio
+import re
+from datetime import datetime, date
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -218,6 +220,57 @@ def load_data(path):
     return pd.read_json(path) if path.endswith(".json") else pd.read_csv(path)
 
 
+# ===============================
+# วันที่: parse + กรองหมดอายุ
+# ===============================
+THAI_MONTHS = {
+    "มกราคม": 1, "กุมภาพันธ์": 2, "มีนาคม": 3, "เมษายน": 4,
+    "พฤษภาคม": 5, "มิถุนายน": 6, "กรกฎาคม": 7, "สิงหาคม": 8,
+    "กันยายน": 9, "ตุลาคม": 10, "พฤศจิกายน": 11, "ธันวาคม": 12,
+    "ม.ค.": 1, "ก.พ.": 2, "มี.ค.": 3, "เม.ย.": 4,
+    "พ.ค.": 5, "มิ.ย.": 6, "ก.ค.": 7, "ส.ค.": 8,
+    "ก.ย.": 9, "ต.ค.": 10, "พ.ย.": 11, "ธ.ค.": 12,
+}
+
+def parse_event_end_date(date_str: str) -> date | None:
+    """
+    พยายาม parse วันที่สิ้นสุดของงานจาก string เช่น
+    "10:00 เสาร์ 4 เม.ย. 2569 - 18:00 เสาร์ 4 เม.ย. 2569"
+    "วันที่ 27 เม.ย. 2569 และ 24 เม.ย. 2569"
+    คืน date object ของวันสุดท้าย หรือ None ถ้า parse ไม่ได้
+    """
+    if not date_str or date_str == "ไม่ระบุ":
+        return None
+    try:
+        # หาตัวเลขวัน + เดือน + ปีพุทธศักราช ทุกชุดในสตริง
+        pattern = r"(\d{1,2})\s+(" + "|".join(re.escape(m) for m in THAI_MONTHS) + r")\s+(\d{4})"
+        matches = re.findall(pattern, date_str)
+        if not matches:
+            return None
+        dates = []
+        for day_s, month_s, year_s in matches:
+            month = THAI_MONTHS.get(month_s)
+            if not month:
+                continue
+            day = int(day_s)
+            year_be = int(year_s)
+            year_ce = year_be - 543  # แปลง พ.ศ. → ค.ศ.
+            dates.append(date(year_ce, month, day))
+        return max(dates) if dates else None
+    except Exception:
+        return None
+
+
+def is_expired(date_str: str, today: date | None = None) -> bool:
+    """คืน True ถ้างานหมดแล้ว (วันสุดท้ายผ่านมาแล้ว)"""
+    if today is None:
+        today = datetime.now().date()
+    end = parse_event_end_date(date_str)
+    if end is None:
+        return False  # parse ไม่ได้ → เก็บไว้ก่อน ไม่กรองทิ้ง
+    return end < today
+
+
 def preprocess(df):
     df = df.fillna("ไม่ระบุ").copy()
 
@@ -348,13 +401,14 @@ def enhance_query(q):
     return " ".join(tokens)
 
 
-def filter_docs(found_docs, q):
+def filter_docs(found_docs, q, locked_province: str = None):
     q_norm = normalize_text(q).lower()
     want_free = "ฟรี" in q_norm
     want_online = "ออนไลน์" in q_norm or "ทำที่บ้าน" in q_norm
     want_not_online = "ไม่ออนไลน์" in q_norm or "ออนไซต์" in q_norm
-    want_province = detect_province_in_query(q)
+    want_province = locked_province or detect_province_in_query(q)
     online_keywords = ["ออนไลน์", "online", "remote", "ทำที่บ้าน", "work from home"]
+    today = datetime.now().date()
 
     if want_province:
         global docs
@@ -363,6 +417,9 @@ def filter_docs(found_docs, q):
             if d.metadata.get("doc_type") != "main":
                 continue
             md = d.metadata
+            # กรองงานหมดอายุ
+            if is_expired(md.get("date", ""), today):
+                continue
             merged = " ".join([
                 str(md.get("provinces", "")),
                 str(md.get("location", "")),
@@ -380,12 +437,15 @@ def filter_docs(found_docs, q):
             if want_not_online and is_online:
                 continue
             results.append(d)
-        print(f"พบงานใน {want_province} = {len(results)} งาน")
+        print(f"พบงานใน {want_province} (ไม่หมดอายุ) = {len(results)} งาน")
         return results
 
     result = []
     for d in found_docs:
         md = d.metadata
+        # กรองงานหมดอายุ
+        if is_expired(md.get("date", ""), today):
+            continue
         merged = " ".join([
             (d.page_content or ""),
             str(md.get("title", "")),
@@ -404,7 +464,7 @@ def filter_docs(found_docs, q):
 
     has_hard = want_free or want_online or want_not_online
     if len(result) < 2 and not has_hard:
-        return found_docs
+        return [d for d in found_docs if not is_expired(d.metadata.get("date", ""), today)]
     return result
 
 
@@ -460,22 +520,14 @@ SYSTEM_PERSONA = """
 6. จำบริบทจาก history เสมอ — ถ้าผู้ใช้บอกพื้นที่/แนวงานไปแล้ว ห้ามถามซ้ำ
 
 === การค้นหางาน ===
--กรณีคำถามกว้างเกินไป: (เช่น "หางานให้หน่อย" หรือ "มีงานอะไรว่างบ้าง")
-
--ผมจะยังไม่แสดงรายชื่อเนื้อหางาน แต่จะ ถามกลับ 1 คำถาม เพื่อสโคปความสนใจของคุณก่อนครับ
-
--กรณีระบุแนวงานแต่ไม่ระบุพื้นที่: > ผมจะลอง ถามถึงพื้นที่ที่สนใจ หรือพื้นที่ที่คุณสะดวกเดินทาง เพื่อให้ได้งานที่ใกล้ตัวคุณที่สุด
-
--กรณีระบุพื้นที่แต่ไม่ระบุแนวงาน: > ผมจะ ถามถึงสายงานหรือทักษะ ที่คุณถนัด เพื่อคัดกรองงานที่เหมาะสมกับตัวบุคคลครับ
-
--กรณีข้อมูลชัดเจน (แนวงาน + พื้นที่): > ผมจะ แสดงรายการงานทันที โดยจำกัดจำนวนไม่เกิน 5 ตำแหน่ง เพื่อให้ง่ายต่อการพิจารณาครับ
+- คำถามกว้าง (ไม่ระบุแนวหรือพื้นที่) → ถามกลับ 1 คำถามก่อน ห้ามแสดงงานทันที
+- คำถามชัดเจน (ระบุแนว + พื้นที่ หรือระบุอย่างใดอย่างหนึ่งชัดๆ) → แสดงงานได้เลย ไม่เกิน 5 งาน
 
 รูปแบบแสดงงาน (ใช้แบบนี้เท่านั้น ห้ามดัดแปลง):
--[ชื่อกิจกรรม]
-[วันที่] [เวลา] | 
-📍 [สถานที่]
-[เบอร์ติดต่อ]
-[url]
+- [ชื่องาน]
+  📅 [วันที่] | 📍 [สถานที่]
+  🔗 [ลิงก์]
+
 === ตัวอย่าง ===
 
 Q: หวัดดี
@@ -550,10 +602,26 @@ async def groq_stream_generator(question: str, context: str, history: list):
                         continue
 
 
+def extract_province_from_history(history: list) -> str | None:
+    """
+    ดึงจังหวัดล่าสุดที่ผู้ใช้เคยระบุใน history
+    เพื่อ lock จังหวัดข้ามเทิร์น
+    """
+    for h in reversed(history or []):
+        if h.role != "user":
+            continue
+        prov = detect_province_in_query(h.content)
+        if prov:
+            return prov
+    return None
+
+
 def ask_rag(question: str, history: list = None) -> tuple[str, list]:
     """
     Returns (context_str, found_docs)
-    ใช้ intent detection ก่อนเสมอ — ถ้าไม่ใช่ search intent ไม่ดึง context
+    - ใช้ intent detection ก่อนเสมอ
+    - lock จังหวัดจาก history ถ้าคำถามปัจจุบันไม่ได้ระบุจังหวัดใหม่
+    - กรองงานหมดอายุออกทุกกรณี
     """
     global docs, retriever
 
@@ -563,13 +631,16 @@ def ask_rag(question: str, history: list = None) -> tuple[str, list]:
     if intent == "general":
         return "", []
 
-    want_province = detect_province_in_query(question)
+    # ตรวจจังหวัดจากคำถามปัจจุบันก่อน ถ้าไม่มีให้ดูจาก history
+    current_province = detect_province_in_query(question)
+    locked_province = current_province or extract_province_from_history(history or [])
+    print(f"province: current={current_province}, locked={locked_province}")
 
-    if want_province:
-        print(f"Province mode: {want_province}")
-        found = filter_docs([], question)
+    if locked_province:
+        print(f"Province mode: {locked_province}")
+        found = filter_docs([], question, locked_province=locked_province)
     else:
-        # รวม history ล่าสุดเข้า query เพื่อให้จำบริบท เช่น จังหวัดที่เคยบอกไว้
+        # รวม history ล่าสุดเข้า query เพื่อให้จำบริบท
         context_query = question
         if history:
             prev_user = " ".join([
@@ -611,12 +682,19 @@ def root():
 @app.post("/ask-pha")
 async def ask_api(data: QuestionRequest):
     try:
-        # ส่ง history เข้าไปใน ask_rag ด้วย เพื่อดึง context ได้แม่นขึ้น
-        context, _ = ask_rag(data.question, data.history or [])
+        history = data.history or []
+
+        # DEBUG: ตรวจว่า history ที่รับมาครบไหม
+        print(f"[DEBUG] question={data.question!r}")
+        print(f"[DEBUG] history len={len(history)}")
+        for i, h in enumerate(history):
+            print(f"[DEBUG]   history[{i}] role={h.role!r} content={h.content[:60]!r}")
+
+        context, _ = ask_rag(data.question, history)
 
         async def stream_response():
             async for chunk in groq_stream_generator(
-                data.question, context, data.history or []
+                data.question, context, history
             ):
                 yield chunk
 

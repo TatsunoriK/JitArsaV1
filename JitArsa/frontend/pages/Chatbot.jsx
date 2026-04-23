@@ -39,14 +39,17 @@ export default function Chatbot() {
     setInput("");
     setLoading(true);
 
-    // const history = updatedMessages.map((m) => ({
-    //   role: m.role === "bot" ? "assistant" : "user",
-    //   content: m.text,
-    // }));
+    // ✅ แก้จุดนี้: build history จาก updatedMessages จริงๆ
+    // กรองเฉพาะข้อความที่มีเนื้อหา และแปลง role "bot" → "assistant"
+    const history = updatedMessages
+      .filter((m) => m.text && m.text.trim() !== "")
+      .map((m) => ({
+        role: m.role === "bot" ? "assistant" : "user",
+        content: m.text,
+      }));
 
     const PLACEHOLDER_ID = "loading-placeholder";
 
-    // show streaming placeholder
     setMessages((prev) => [
       ...prev,
       { id: PLACEHOLDER_ID, role: "bot", text: "" },
@@ -56,7 +59,8 @@ export default function Chatbot() {
       const res = await fetch("/ask-pha", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question, history: [] }),
+        // ✅ ส่ง history จริงๆ แทน []
+        body: JSON.stringify({ question, history }),
       });
 
       if (!res.ok) throw new Error(`Server error: ${res.status}`);
@@ -77,7 +81,6 @@ export default function Chatbot() {
         );
       }
 
-      // finalise
       setMessages((prev) =>
         prev.map((m) =>
           m.id === PLACEHOLDER_ID
@@ -155,7 +158,6 @@ export default function Chatbot() {
             <p className="text-xs text-[#ACB1D6]">เพื่อนคุยงานอาสา</p>
           </div>
 
-          {/* Status dot */}
           <div className="ml-auto flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
             <span className="text-xs text-[#ACB1D6]">ออนไลน์</span>
@@ -164,7 +166,6 @@ export default function Chatbot() {
       </div>
 
       {isEmpty ? (
-        /* ─── Empty State ─── */
         <div className="flex-1 flex flex-col items-center justify-center gap-6 px-4 pb-28">
           <div className="w-full max-w-lg bg-white rounded-3xl p-8 text-center shadow-sm border border-[#DBDFEA]">
             <img
@@ -182,7 +183,6 @@ export default function Chatbot() {
               ลองพิมพ์คำถามหรือเลือกจากคำแนะนำด้านล่างได้เลย!
             </p>
 
-            {/* Suggestion chips */}
             <div className="flex flex-wrap justify-center gap-2 mt-5">
               {[
                 "มีงานอาสาที่กรุงเทพไหม?",
@@ -211,7 +211,6 @@ export default function Chatbot() {
         </div>
       ) : (
         <>
-          {/* ─── Messages ─── */}
           <div className="flex-1 overflow-y-auto px-4 py-5 pb-28 max-w-3xl w-full mx-auto space-y-4">
             {messages.map((msg) => (
               <div
@@ -249,7 +248,6 @@ export default function Chatbot() {
               </div>
             ))}
 
-            {/* Loading dots */}
             {loading && (
               <div className="flex items-end gap-2">
                 <img
@@ -268,7 +266,6 @@ export default function Chatbot() {
             <div ref={bottomRef} />
           </div>
 
-          {/* ─── Fixed Input ─── */}
           <div className="fixed bottom-0 left-0 right-0 bg-[#DBDFEA]/90 backdrop-blur px-4 py-3 pb-5">
             <div className="max-w-3xl mx-auto">
               <InputBar
