@@ -1,11 +1,18 @@
 const express = require("express");
-const mongoose = require("mongoose");
+const cors = require("cors");
 require("dotenv").config();
+const connectDB = require("./config/db");
+
+const mongoose = require("mongoose");
+const auth = require("./controller/authController");
 
 const app = express();
 const port = 5000;
 
+app.use(cors());
 app.use(express.json());
+
+connectDB();
 
 app.post("/ask-pha", async (req, res) => {
   try {
@@ -63,7 +70,9 @@ app.post("/ask-pha", async (req, res) => {
   } catch (error) {
     console.error("FULL ERROR:", error);
     if (error.name === "AbortError") {
-      return res.status(504).json({ error: "Python ใช้เวลานานเกินไป (timeout)" });
+      return res
+        .status(504)
+        .json({ error: "Python ใช้เวลานานเกินไป (timeout)" });
     }
     res.status(500).json({ error: "Connection failed", detail: error.message });
   }
@@ -73,7 +82,11 @@ app.get("/ask-pha", (req, res) => {
   res.send("Use POST method instead");
 });
 
-mongoose.connect(process.env.MONGO_URI)
+app.post("/login", auth.login);
+app.post("/register", auth.register);
+
+mongoose
+  .connect(process.env.MONGO_URI)
   .then(() => {
     console.log("Mongo connected");
     app.listen(port, () => {

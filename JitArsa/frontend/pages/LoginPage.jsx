@@ -1,6 +1,13 @@
+import {
+  HashRouter,
+  Routes,
+  Route,
+  Navigate,
+  useNavigate,
+} from "react-router-dom";
 import { useState, useEffect, useRef } from "react";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 export default function LoginPage({ onLoginSuccess }) {
   const [username, setUsername] = useState("");
@@ -11,6 +18,7 @@ export default function LoginPage({ onLoginSuccess }) {
   const [shake, setShake] = useState(false);
   const [mounted, setMounted] = useState(false);
   const usernameRef = useRef(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     setMounted(true);
@@ -34,10 +42,15 @@ export default function LoginPage({ onLoginSuccess }) {
     setError("");
 
     try {
-      const res = await fetch(`${API_BASE}/auth/login`, {
+      const res = await fetch(`${API_BASE}/login`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: username.trim(), password }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          username: username.trim(),
+          password,
+        }),
       });
 
       const data = await res.json();
@@ -45,6 +58,10 @@ export default function LoginPage({ onLoginSuccess }) {
       if (data.success) {
         localStorage.setItem("jp_token", data.token);
         localStorage.setItem("jp_user", JSON.stringify(data.user));
+        localStorage.setItem("jp_username", data.user.username);
+
+        navigate("/");
+
         onLoginSuccess?.(data);
       } else {
         setError(data.message || "เกิดข้อผิดพลาด");
@@ -341,22 +358,30 @@ export default function LoginPage({ onLoginSuccess }) {
 
         <div className={`jp-card${shake ? " shaking" : ""}`}>
           {/* Brand */}
-          <div className="jp-brand">
+          <div className="jp-brand mb-2">
             <div className="jp-logo-ring">
-              <span className="jp-logo-icon">🌸</span>
+              <img
+                src="/girl.png"
+                alt="bot"
+                className="w-16 h-16 object-cover"
+              />
             </div>
-            <div className="jp-title">จิตอาสา ผาไผ่</div>
-            <div className="jp-subtitle">AI Chatbot · ระบบจัดการ</div>
+            <div className="jp-title">เข้าสู่ระบบ</div>
+            {/* <div className="jp-subtitle">AI Chatbot · ระบบจัดการ</div> */}
           </div>
 
-          <div className="jp-divider" />
+          <div className="jp-divider mb-3" />
 
           <form onSubmit={handleSubmit} autoComplete="off" noValidate>
             {/* Username */}
             <div className="jp-field">
-              <label className="jp-label" htmlFor="jp-username">ชื่อผู้ใช้</label>
+              <label className="jp-label" htmlFor="jp-username">
+                ชื่อผู้ใช้
+              </label>
               <div className="jp-input-wrap">
-                <span className="jp-icon">👤</span>
+                <span className="jp-icon">
+                  <i class="bi bi-person-fill"></i>
+                </span>
                 <input
                   id="jp-username"
                   ref={usernameRef}
@@ -373,9 +398,13 @@ export default function LoginPage({ onLoginSuccess }) {
 
             {/* Password */}
             <div className="jp-field">
-              <label className="jp-label" htmlFor="jp-password">รหัสผ่าน</label>
+              <label className="jp-label" htmlFor="jp-password">
+                รหัสผ่าน
+              </label>
               <div className="jp-input-wrap">
-                <span className="jp-icon">🔒</span>
+                <span className="jp-icon">
+                  <i class="bi bi-unlock-fill"></i>
+                </span>
                 <input
                   id="jp-password"
                   className="jp-input"
@@ -393,7 +422,11 @@ export default function LoginPage({ onLoginSuccess }) {
                   tabIndex={-1}
                   aria-label={showPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
                 >
-                  {showPassword ? "🙈" : "👁️"}
+                  {showPassword ? (
+                    <i className="bi bi-eye-slash-fill"></i>
+                  ) : (
+                    <i className="bi bi-eye-fill"></i>
+                  )}
                 </button>
               </div>
             </div>
@@ -419,9 +452,14 @@ export default function LoginPage({ onLoginSuccess }) {
             </button>
           </form>
 
-          <div className="jp-footer">
-            ระบบสำหรับเจ้าหน้าที่เท่านั้น<br />
+          {/* <div className="jp-footer">
+            ระบบสำหรับเจ้าหน้าที่เท่านั้น
+            <br />
             หากพบปัญหา กรุณาติดต่อผู้ดูแลระบบ
+          </div> */}
+
+          <div className="jp-footer">
+            ยังไม่มีบัญชี? <a href="#/register">สมัครสมาชิก</a>
           </div>
         </div>
       </div>

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+// import { useNavigate } from "react-router-dom";
+import Sidebar from "../components/Sidebar";
 
 export default function Chatbot() {
   const [screen, setScreen] = useState("splash");
@@ -6,6 +8,16 @@ export default function Chatbot() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef(null);
+  // const navigate = useNavigate();
+
+  // เช็คว่า login หรือยัง
+  // useEffect(() => {
+  //   const token = localStorage.getItem("jp_token");
+
+  //   if (!token) {
+  //     window.location.href = "/login";
+  //   }
+  // }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -76,17 +88,21 @@ export default function Chatbot() {
         const snapshot = full;
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === PLACEHOLDER_ID ? { ...m, text: snapshot } : m
-          )
+            m.id === PLACEHOLDER_ID ? { ...m, text: snapshot } : m,
+          ),
         );
       }
 
       setMessages((prev) =>
         prev.map((m) =>
           m.id === PLACEHOLDER_ID
-            ? { ...m, id: `bot-${Date.now()}`, text: full || "ขอโทษนะ ภาหาคำตอบไม่เจอ" }
-            : m
-        )
+            ? {
+                ...m,
+                id: `bot-${Date.now()}`,
+                text: full || "ขอโทษนะ ภาหาคำตอบไม่เจอ",
+              }
+            : m,
+        ),
       );
     } catch (err) {
       console.error("Fetch Error:", err);
@@ -102,6 +118,11 @@ export default function Chatbot() {
       setLoading(false);
     }
   }
+
+  // const handleLogout = () => {
+  //   localStorage.removeItem("jp_token"); // ลบ token
+  //   navigate("/login"); // เด้งไปหน้า login
+  // };
 
   if (screen === "splash") {
     return (
@@ -142,132 +163,74 @@ export default function Chatbot() {
   const isEmpty = messages.length === 0;
 
   return (
-    <div className="flex flex-col h-screen bg-[#DBDFEA] font-kodchasan">
-      {/* Header */}
-      <div className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b border-[#ACB1D6]/30 px-4 py-3">
-        <div className="flex items-center gap-3 max-w-3xl mx-auto">
-          <img
-            src="/girl.png"
-            alt="bot"
-            className="w-9 h-9 rounded-full object-cover border-2 border-[#ACB1D6]/40"
-          />
-          <div>
-            <h2 className="text-sm font-bold text-[#8294C4] leading-tight">
-              My friend name Pha
-            </h2>
-            <p className="text-xs text-[#ACB1D6]">เพื่อนคุยงานอาสา</p>
-          </div>
+    <div className="flex h-screen">
+      <Sidebar />
 
-          <div className="ml-auto flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-            <span className="text-xs text-[#ACB1D6]">ออนไลน์</span>
-          </div>
-        </div>
-      </div>
-
-      {isEmpty ? (
-        <div className="flex-1 flex flex-col items-center justify-center gap-6 px-4 pb-28">
-          <div className="w-full max-w-lg bg-white rounded-3xl p-8 text-center shadow-sm border border-[#DBDFEA]">
+      <div className="flex flex-col flex-1 bg-[#DBDFEA] font-kodchasan relative">
+        {/* Header */}
+        {/* <div className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b border-[#ACB1D6]/30 px-4 py-3">
+          <div className="flex items-center gap-3 max-w-3xl mx-auto">
             <img
               src="/girl.png"
               alt="bot"
-              className="w-20 h-20 rounded-full mx-auto mb-4 border-4 border-[#DBDFEA] shadow"
+              className="w-9 h-9 rounded-full object-cover border-2 border-[#ACB1D6]/40"
             />
-            <p className="text-xl font-bold text-[#8294C4] mb-1">สวัสดี! 👋</p>
-            <p className="text-[#8294C4] font-semibold mb-1">
-              เราชื่อภา เป็นเพื่อนคุยงานอาสาของเธอ
-            </p>
-            <p className="text-sm text-[#ACB1D6] leading-relaxed">
-              มีอะไรอยากถามเกี่ยวกับงานอาสาไหม?
-              <br />
-              ลองพิมพ์คำถามหรือเลือกจากคำแนะนำด้านล่างได้เลย!
-            </p>
-
-            <div className="flex flex-wrap justify-center gap-2 mt-5">
-              {[
-                "มีงานอาสาที่กรุงเทพไหม?",
-                "อยากได้งานอาสาออนไลน์",
-                "งานอาสาฟรีมีไหม?",
-              ].map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setInput(s)}
-                  className="px-3 py-1.5 rounded-full bg-[#DBDFEA] text-[#8294C4] text-xs font-medium hover:bg-[#ACB1D6] hover:text-white transition-colors"
-                >
-                  {s}
-                </button>
-              ))}
+            <div>
+              <h2 className="text-sm font-bold text-[#8294C4] leading-tight">
+                My friend name Pha
+              </h2>
+              <p className="text-xs text-[#ACB1D6]">เพื่อนคุยงานอาสา</p>
             </div>
-          </div>
 
-          <div className="w-full max-w-2xl px-0">
-            <InputBar
-              value={input}
-              onChange={setInput}
-              onSend={sendMessage}
-              loading={loading}
-            />
-          </div>
-        </div>
-      ) : (
-        <>
-          <div className="flex-1 overflow-y-auto px-4 py-5 pb-28 max-w-3xl w-full mx-auto space-y-4">
-            {messages.map((msg) => (
-              <div
-                key={msg.id}
-                className={`flex items-end gap-2 ${
-                  msg.role === "user" ? "flex-row-reverse" : "flex-row"
-                }`}
-              >
-                {msg.role === "bot" && (
-                  <img
-                    src="/girl.png"
-                    alt="bot"
-                    className="w-8 h-8 rounded-full object-cover flex-shrink-0 border-2 border-[#DBDFEA]"
-                  />
-                )}
+            <div className="ml-auto flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+              <span className="text-xs text-[#ACB1D6]">ออนไลน์</span>
+            </div>
 
-                <div
-                  className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed break-words ${
-                    msg.role === "user"
-                      ? "bg-[#8294C4] text-white rounded-br-sm shadow-sm"
-                      : "bg-white text-[#374151] rounded-bl-sm shadow-sm border border-[#DBDFEA]"
-                  }`}
-                >
-                  {msg.text.split("\n").map((line, i) => (
-                    <p
-                      key={i}
-                      className={
-                        i < msg.text.split("\n").length - 1 ? "mb-1" : ""
-                      }
-                    >
-                      {line}
-                    </p>
-                  ))}
-                </div>
+            <button onClick={handleLogout}>Logout</button>
+          </div>
+        </div> */}
+
+        {isEmpty ? (
+          /* ─── Empty State ─── */
+          <div className="flex-1 flex flex-col items-center justify-center gap-6 px-4 pb-28">
+            <div className="w-full max-w-2xl bg-white rounded-3xl p-8 text-center shadow-sm border border-[#DBDFEA]">
+              <img
+                src="/girl.png"
+                alt="bot"
+                className="w-20 h-20 rounded-full mx-auto mb-4 border-4 border-[#DBDFEA] shadow"
+              />
+              {/* <p className="text-xl font-bold text-[#8294C4] mb-1">
+                สวัสดี! 👋
+              </p>
+              <p className="text-[#8294C4] font-semibold mb-1">
+                เราชื่อภา เป็นเพื่อนคุยงานอาสาของเธอ
+              </p>
+              <p className="text-sm text-[#ACB1D6] leading-relaxed">
+                มีอะไรอยากถามเกี่ยวกับงานอาสาไหม?
+                <br />
+                ลองพิมพ์คำถามหรือเลือกจากคำแนะนำด้านล่างได้เลย!
+              </p> */}
+
+              {/* Suggestion chips */}
+              <div className="flex flex-wrap justify-center gap-2 mt-5">
+                {[
+                  "มีงานอาสาที่กรุงเทพไหม?",
+                  "อยากได้งานอาสาออนไลน์",
+                  "งานอาสาฟรีมีไหม?",
+                ].map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setInput(s)}
+                    className="px-3 py-1.5 rounded-full bg-[#DBDFEA] text-[#8294C4] text-xs font-medium hover:bg-[#ACB1D6] hover:text-white transition-colors"
+                  >
+                    {s}
+                  </button>
+                ))}
               </div>
-            ))}
+            </div>
 
-            {loading && (
-              <div className="flex items-end gap-2">
-                <img
-                  src="/girl.png"
-                  alt="bot"
-                  className="w-8 h-8 rounded-full object-cover flex-shrink-0 border-2 border-[#DBDFEA]"
-                />
-                <div className="bg-white border border-[#DBDFEA] rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-[#ACB1D6] animate-bounce [animation-delay:0ms]" />
-                  <span className="w-2 h-2 rounded-full bg-[#ACB1D6] animate-bounce [animation-delay:150ms]" />
-                  <span className="w-2 h-2 rounded-full bg-[#ACB1D6] animate-bounce [animation-delay:300ms]" />
-                </div>
-              </div>
-            )}
-
-            <div ref={bottomRef} />
-          </div>
-
-          <div className="fixed bottom-0 left-0 right-0 bg-[#DBDFEA]/90 backdrop-blur px-4 py-3 pb-5">
-            <div className="max-w-3xl mx-auto">
+            <div className="w-full max-w-2xl px-0">
               <InputBar
                 value={input}
                 onChange={setInput}
@@ -276,8 +239,76 @@ export default function Chatbot() {
               />
             </div>
           </div>
-        </>
-      )}
+        ) : (
+          <>
+            <div className="flex-1 overflow-y-auto px-4 py-5 pb-28 max-w-3xl w-full mx-auto space-y-4">
+              {messages.map((msg) => (
+                <div
+                  key={msg.id}
+                  className={`flex items-end gap-2 ${
+                    msg.role === "user" ? "flex-row-reverse" : "flex-row"
+                  }`}
+                >
+                  {msg.role === "bot" && (
+                    <img
+                      src="/girl.png"
+                      alt="bot"
+                      className="w-8 h-8 rounded-full object-cover flex-shrink-0 border-2 border-[#DBDFEA]"
+                    />
+                  )}
+
+                  <div
+                    className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed break-words ${
+                      msg.role === "user"
+                        ? "bg-[#8294C4] text-white rounded-br-sm shadow-sm"
+                        : "bg-white text-[#374151] rounded-bl-sm shadow-sm border border-[#DBDFEA]"
+                    }`}
+                  >
+                    {msg.text.split("\n").map((line, i) => (
+                      <p
+                        key={i}
+                        className={
+                          i < msg.text.split("\n").length - 1 ? "mb-1" : ""
+                        }
+                      >
+                        {line}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              {loading && (
+                <div className="flex items-end gap-2">
+                  <img
+                    src="/girl.png"
+                    alt="bot"
+                    className="w-8 h-8 rounded-full object-cover flex-shrink-0 border-2 border-[#DBDFEA]"
+                  />
+                  <div className="bg-white border border-[#DBDFEA] rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-[#ACB1D6] animate-bounce [animation-delay:0ms]" />
+                    <span className="w-2 h-2 rounded-full bg-[#ACB1D6] animate-bounce [animation-delay:150ms]" />
+                    <span className="w-2 h-2 rounded-full bg-[#ACB1D6] animate-bounce [animation-delay:300ms]" />
+                  </div>
+                </div>
+              )}
+
+              <div ref={bottomRef} />
+            </div>
+
+            <div className="fixed bottom-0 left-0 right-0 bg-[#DBDFEA]/90 backdrop-blur px-4 py-3 pb-5">
+              <div className="max-w-3xl mx-auto">
+                <InputBar
+                  value={input}
+                  onChange={setInput}
+                  onSend={sendMessage}
+                  loading={loading}
+                />
+              </div>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -296,7 +327,7 @@ function InputBar({ value, onChange, onSend, loading }) {
       <button
         onClick={onSend}
         disabled={loading}
-        className="w-9 h-9 flex items-center justify-center rounded-xl bg-[#8294C4] text-white text-base font-bold shadow-sm hover:bg-[#6b7db0] active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+        className="w-10 h-10 flex items-center justify-center rounded-full bg-gradient-to-br from-[#8294C4] to-[#6b7db0] text-white shadow-md hover:shadow-lg hover:scale-105 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200"
       >
         {loading ? (
           <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
@@ -305,7 +336,7 @@ function InputBar({ value, onChange, onSend, loading }) {
             xmlns="http://www.w3.org/2000/svg"
             viewBox="0 0 24 24"
             fill="currentColor"
-            className="w-4 h-4"
+            className="w-4.5 h-4.5"
           >
             <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
           </svg>
