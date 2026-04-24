@@ -2,7 +2,9 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import Sidebar from "../components/Sidebar";
 
 export default function Chatbot() {
-  const [screen, setScreen] = useState(() => sessionStorage.getItem("jp_screen") || "splash");
+  const [screen, setScreen] = useState(
+    () => sessionStorage.getItem("jp_screen") || "splash",
+  );
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -12,11 +14,12 @@ export default function Chatbot() {
   const isEmpty = messages.length === 0;
   // ✅ persist sessionId ใน sessionStorage — F5 ยังคง session เดิม
   const sessionIdRef = useRef(
-    sessionStorage.getItem("jp_session_id") || (() => {
-      const id = crypto.randomUUID();
-      sessionStorage.setItem("jp_session_id", id);
-      return id;
-    })()
+    sessionStorage.getItem("jp_session_id") ||
+      (() => {
+        const id = crypto.randomUUID();
+        sessionStorage.setItem("jp_session_id", id);
+        return id;
+      })(),
   );
   const refreshHistoryRef = useRef(null); // ref เก็บ fetchHistory จาก Sidebar
 
@@ -98,7 +101,11 @@ export default function Chatbot() {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ question, history, sessionId: sessionIdRef.current }),
+        body: JSON.stringify({
+          question,
+          history,
+          sessionId: sessionIdRef.current,
+        }),
       });
 
       if (!res.ok) throw new Error(`Server error: ${res.status}`);
@@ -430,7 +437,10 @@ export default function Chatbot() {
             background: "var(--mist)",
             fontFamily: "'Noto Sans Thai', sans-serif",
           }}
-          onClick={() => { setScreen("chat"); sessionStorage.setItem("jp_screen", "chat"); }}
+          onClick={() => {
+            setScreen("chat");
+            sessionStorage.setItem("jp_screen", "chat");
+          }}
         >
           <div className="relative">
             <img
@@ -467,7 +477,8 @@ export default function Chatbot() {
             }}
             onClick={(e) => {
               e.stopPropagation();
-              setScreen("chat"); sessionStorage.setItem("jp_screen", "chat");
+              setScreen("chat");
+              sessionStorage.setItem("jp_screen", "chat");
             }}
           >
             มาเริ่มคุยกับภากันเถอะ !
@@ -481,7 +492,10 @@ export default function Chatbot() {
           className="flex h-screen"
           style={{ fontFamily: "'Noto Sans Thai', sans-serif" }}
         >
-          <Sidebar onNewChat={resetChat} onRegisterRefresh={onRegisterRefreshCallback} />
+          <Sidebar
+            onNewChat={resetChat}
+            onRegisterRefresh={onRegisterRefreshCallback}
+          />
 
           <div
             className="flex flex-col flex-1 relative"

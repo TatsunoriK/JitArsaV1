@@ -17,6 +17,12 @@ python update_database.py
 
 python scheduler.py
 
+uvicorn main:app --reload
+node server.js
+npm run dev
+
+backend อีกแบบ => npm run all
+
 login
 aam
 123
