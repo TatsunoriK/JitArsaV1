@@ -16,26 +16,25 @@ html, body {
   width: 100%;
 } */
 
-/* scrollbar แบบนุ่มๆ */
-.custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
-}
-
 .custom-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
 
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px !important;
+}
+
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(130,148,196,0.4);
-  border-radius: 10px;
+  background: rgba(130,148,196,0.6) !important;
+  border-radius: 999px !important;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(130,148,196,0.7);
+  background: rgba(130,148,196,0.8);
 }
 
 /* Firefox */
 .custom-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: rgba(130,148,196,0.4) transparent;
+  scrollbar-color: rgba(130,148,196,0.5) transparent;
 }
