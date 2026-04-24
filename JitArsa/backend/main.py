@@ -1,6 +1,30 @@
-import httpx                          # async HTTP client สำหรับเรียก Groq API แบบ streaming
+from sklearn.metrics.pairwise import cosine_similarity
+# stopwords ภาษาไทย เช่น "ที่", "และ", "ใน"
+from pythainlp.corpus.common import thai_stopwords
+from pythainlp.tokenize import word_tokenize        # tokenize ภาษาไทย (ตัดคำ)
+# ตัด text ยาวๆ เป็น chunks
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+# vector database เก็บ embedding ไว้ค้นหา
+from langchain_community.vectorstores import FAISS
+# โมเดล embedding แปลง text → vector
+from langchain_huggingface import HuggingFaceEmbeddings
+# wrapper เก็บ text + metadata
+from langchain_core.documents import Document
+# ปิด warning จาก HuggingFace
+from transformers import logging as transformers_logging
+# ส่ง response แบบ stream (ทีละ chunk)
+from fastapi.responses import StreamingResponse
+# อนุญาต cross-origin จาก frontend
+from fastapi.middleware.cors import CORSMiddleware
+# validate request body อัตโนมัติ
+from pydantic import BaseModel
+from fastapi import FastAPI
+from typing import List, Optional
+# async HTTP client สำหรับเรียก Groq API แบบ streaming
+import httpx
 import os                             # อ่าน environment variables และ path ของไฟล์
-import pandas as pd                   # จัดการ dataset (อ่าน JSON, transform, filter)
+# จัดการ dataset (อ่าน JSON, transform, filter)
+import pandas as pd
 import json                           # parse JSON จาก Groq SSE response
 import sys                            # ใช้แทนที่ stdout/stderr ให้รองรับ UTF-8
 import io                             # ใช้คู่กับ sys สำหรับ wrap TextIOWrapper
@@ -8,28 +32,20 @@ import re                             # regex สำหรับ parse วัน
 from datetime import datetime, date   # เทียบวันหมดอายุของงาน
 from dotenv import load_dotenv        # โหลด GROQ_API_KEY จากไฟล์ .env
 import itertools                      # itertools.cycle สำหรับวน GROQ_API_KEYS
+import numpy as np
 
 load_dotenv()  # โหลด .env ก่อนทุกอย่าง เพื่อให้ os.environ อ่าน key ได้
 
-from typing import List, Optional
-from fastapi import FastAPI
-from pydantic import BaseModel                              # validate request body อัตโนมัติ
-from fastapi.middleware.cors import CORSMiddleware          # อนุญาต cross-origin จาก frontend
-from fastapi.responses import StreamingResponse            # ส่ง response แบบ stream (ทีละ chunk)
-from transformers import logging as transformers_logging   # ปิด warning จาก HuggingFace
-
-from langchain_core.documents import Document                        # wrapper เก็บ text + metadata
-from langchain_huggingface import HuggingFaceEmbeddings              # โมเดล embedding แปลง text → vector
-from langchain_community.vectorstores import FAISS                   # vector database เก็บ embedding ไว้ค้นหา
-from langchain_text_splitters import RecursiveCharacterTextSplitter  # ตัด text ยาวๆ เป็น chunks
-from pythainlp.tokenize import word_tokenize        # tokenize ภาษาไทย (ตัดคำ)
-from pythainlp.corpus.common import thai_stopwords  # stopwords ภาษาไทย เช่น "ที่", "และ", "ใน"
 
 # แก้ปัญหา UnicodeEncodeError บน Windows ที่ terminal ไม่รองรับ UTF-8
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 # ปิด warning ของ HuggingFace (เช่น "Some weights not initialized") ไม่ให้รกหน้าจอ
 transformers_logging.set_verbosity_error()
+
+
+def embed_text(text: str):
+    return np.array(_embedding_model.embed_query(text)).reshape(1, -1)
 
 
 def safe_print(*args, **kwargs):
@@ -67,6 +83,7 @@ DATASET_PATH = os.path.join(BASE_DIR, "data/jitarsa.json")
 
 # โมเดล embedding รองรับหลายภาษารวม Thai — ขนาดเล็ก เร็ว ใช้ฟรี (ไม่ต้องมี API key)
 EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+_embedding_model = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
 
 # Key rotation — รองรับหลาย key คั่นด้วยคอมม่าใน .env เช่น GROQ_API_KEYS=key1,key2,key3
 # ถ้าไม่มี GROQ_API_KEYS ให้ fallback ไปหา GROQ_API_KEY (key เดี่ยว)
@@ -95,10 +112,11 @@ def get_current_groq_key() -> str:
     return GROQ_API_KEYS[_current_key_index]
 
 
-GROQ_MODEL   = "llama-3.3-70b-versatile"  # โมเดล llama ที่ Groq host ไว้ — ฟรีและเร็ว
+# โมเดล llama ที่ Groq host ไว้ — ฟรีและเร็ว
+GROQ_MODEL = "llama-3.3-70b-versatile"
 GROQ_TIMEOUT = 60     # หน่วย: วินาที — ถ้า Groq ไม่ตอบใน 60s ให้ timeout
 
-CHUNK_SIZE    = 500   # ขนาด chunk สูงสุดตอนตัดรายละเอียดงาน (ตัวอักษร)
+CHUNK_SIZE = 500   # ขนาด chunk สูงสุดตอนตัดรายละเอียดงาน (ตัวอักษร)
 CHUNK_OVERLAP = 100   # overlap ระหว่าง chunk กัน context ขาดหายตรงรอยต่อ
 
 # ===============================
@@ -124,14 +142,15 @@ PROVINCE_ALIAS = {
 # mapping ภาค/โซน → รายชื่อจังหวัดทั้งหมดในภาคนั้น
 # ใช้ตอนผู้ใช้พิมพ์ "ภาคเหนือ" หรือ "โซนใต้" แทนที่จะระบุจังหวัดตรงๆ
 REGION_MAP = {
-    "เหนือ":    ["เชียงใหม่","เชียงราย","ลำปาง","ลำพูน","แม่ฮ่องสอน","พะเยา","แพร่","น่าน","อุตรดิตถ์","ตาก","สุโขทัย","พิษณุโลก","พิจิตร","กำแพงเพชร","เพชรบูรณ์"],
-    "ใต้":      ["สงขลา","สุราษฎร์ธานี","นครศรีธรรมราช","ภูเก็ต","กระบี่","พังงา","ตรัง","พัทลุง","สตูล","ระนอง","ปัตตานี","ยะลา","นราธิวาส","ชุมพร"],
-    "กลาง":     ["กรุงเทพ","นนทบุรี","ปทุมธานี","สมุทรปราการ","สมุทรสาคร","สมุทรสงคราม","นครปฐม","สุพรรณบุรี","กาญจนบุรี","ราชบุรี","เพชรบุรี","ประจวบคีรีขันธ์","อยุธยา","อ่างทอง","สิงห์บุรี","ชัยนาท","ลพบุรี","สระบุรี","นครนายก","ปราจีนบุรี"],
-    "ออก":      ["ชลบุรี","ระยอง","จันทบุรี","ตราด","ฉะเชิงเทรา","สระแก้ว"],
-    "ตะวันออก": ["ชลบุรี","ระยอง","จันทบุรี","ตราด","ฉะเชิงเทรา","สระแก้ว"],  # alias ของ "ออก"
-    "อีสาน":    ["นครราชสีมา","ขอนแก่น","อุดรธานี","อุบลราชธานี","บุรีรัมย์","สุรินทร์","ศรีสะเกษ","มหาสารคาม","ร้อยเอ็ด","กาฬสินธุ์","สกลนคร","นครพนม","มุกดาหาร","อำนาจเจริญ","ยโสธร","ชัยภูมิ","เลย","หนองคาย","หนองบัวลำภู","บึงกาฬ","อุทัยธานี"],
-    "อีสานเหนือ": ["อุดรธานี","หนองคาย","บึงกาฬ","นครพนม","สกลนคร","มุกดาหาร","หนองบัวลำภู","เลย"],
-    "ตะวันตก":  ["กาญจนบุรี","ราชบุรี","เพชรบุรี","ประจวบคีรีขันธ์","ตาก"],
+    "เหนือ":    ["เชียงใหม่", "เชียงราย", "ลำปาง", "ลำพูน", "แม่ฮ่องสอน", "พะเยา", "แพร่", "น่าน", "อุตรดิตถ์", "ตาก", "สุโขทัย", "พิษณุโลก", "พิจิตร", "กำแพงเพชร", "เพชรบูรณ์"],
+    "ใต้":      ["สงขลา", "สุราษฎร์ธานี", "นครศรีธรรมราช", "ภูเก็ต", "กระบี่", "พังงา", "ตรัง", "พัทลุง", "สตูล", "ระนอง", "ปัตตานี", "ยะลา", "นราธิวาส", "ชุมพร"],
+    "กลาง":     ["กรุงเทพ", "นนทบุรี", "ปทุมธานี", "สมุทรปราการ", "สมุทรสาคร", "สมุทรสงคราม", "นครปฐม", "สุพรรณบุรี", "กาญจนบุรี", "ราชบุรี", "เพชรบุรี", "ประจวบคีรีขันธ์", "อยุธยา", "อ่างทอง", "สิงห์บุรี", "ชัยนาท", "ลพบุรี", "สระบุรี", "นครนายก", "ปราจีนบุรี"],
+    "ออก":      ["ชลบุรี", "ระยอง", "จันทบุรี", "ตราด", "ฉะเชิงเทรา", "สระแก้ว"],
+    # alias ของ "ออก"
+    "ตะวันออก": ["ชลบุรี", "ระยอง", "จันทบุรี", "ตราด", "ฉะเชิงเทรา", "สระแก้ว"],
+    "อีสาน":    ["นครราชสีมา", "ขอนแก่น", "อุดรธานี", "อุบลราชธานี", "บุรีรัมย์", "สุรินทร์", "ศรีสะเกษ", "มหาสารคาม", "ร้อยเอ็ด", "กาฬสินธุ์", "สกลนคร", "นครพนม", "มุกดาหาร", "อำนาจเจริญ", "ยโสธร", "ชัยภูมิ", "เลย", "หนองคาย", "หนองบัวลำภู", "บึงกาฬ", "อุทัยธานี"],
+    "อีสานเหนือ": ["อุดรธานี", "หนองคาย", "บึงกาฬ", "นครพนม", "สกลนคร", "มุกดาหาร", "หนองบัวลำภู", "เลย"],
+    "ตะวันตก":  ["กาญจนบุรี", "ราชบุรี", "เพชรบุรี", "ประจวบคีรีขันธ์", "ตาก"],
 }
 
 # แปลงภาษาพูดทั่วไป → key ใน REGION_MAP
@@ -179,6 +198,8 @@ retriever = None
 # ===============================
 # 4) REQUEST MODEL — validate body ที่รับจาก Node.js
 # ===============================
+
+
 class HistoryMessage(BaseModel):
     """1 ข้อความใน conversation history"""
     role: str     # "user" หรือ "assistant"
@@ -188,54 +209,45 @@ class HistoryMessage(BaseModel):
 class QuestionRequest(BaseModel):
     """body ของ POST /ask-pha"""
     question: str                              # คำถามปัจจุบัน
-    history: Optional[List[HistoryMessage]] = []  # ประวัติการสนทนาก่อนหน้า (ถ้าไม่ส่งมา = list ว่าง)
+    # ประวัติการสนทนาก่อนหน้า (ถ้าไม่ส่งมา = list ว่าง)
+    history: Optional[List[HistoryMessage]] = []
 
 # ===============================
 # 5) INTENT DETECTION — ตัดสินใจว่าต้องดึง context งานไหม
 # ===============================
 
+
 # คีย์เวิร์ดที่บ่งบอกว่าผู้ใช้ต้องการค้นหางานอาสา
 # ถ้าพบคำเหล่านี้ใน query → intent = "search" → ดึง docs จาก FAISS
 SEARCH_KEYWORDS = [
-    # ค้นหาทั่วไป
-    "มีงาน", "หางาน", "แนะนำงาน", "งานอาสา", "จิตอาสา", "กิจกรรม", "โครงการ",
-    "สมัคร", "ฟรี", "ออนไลน์", "ทำที่บ้าน", "เสาร์", "อาทิตย์",
-    "แถว", "ใกล้", "ที่ไหน", "แนวไหน", "อยาก", "ถนัด", "ชอบ", "สนใจ",
-    # กลุ่มเป้าหมาย
-    "ช่วยเด็ก", "ช่วยผู้สูงอายุ", "ผู้พิการ", "คนไร้บ้าน", "ผู้ป่วย",
-    "สัตว์", "ชุมชน", "ผู้ด้อยโอกาส", "เยาวชน", "นักเรียน",
-    # ประเภทงาน / ทักษะ
-    "สอน", "ติวเตอร์", "ครู", "การศึกษา",
-    "ก่อสร้าง", "ซ่อม", "ช่าง", "งานหนัก", "แรงงาน",
-    "ถักผ้า", "ถักนิตติ้ง", "เย็บ", "งานฝีมือ", "หัตถกรรม", "งานประดิษฐ์",
-    "บริหาร", "จัดการ", "ประสานงาน", "เอกสาร", "ออฟฟิศ", "สำนักงาน",
-    "ออกแบบ", "กราฟิก", "ศิลปะ", "วาดรูป", "ถ่ายภาพ", "วิดีโอ", "ตัดต่อ",
-    "ดนตรี", "ร้องเพลง", "กีฬา", "นาฏศิลป์", "การแสดง",
-    "แพทย์", "พยาบาล", "สาธารณสุข", "ปฐมพยาบาล", "สุขภาพ",
-    "IT", "โปรแกรม", "คอมพิวเตอร์", "เทคโนโลยี", "โค้ด",
-    "แปล", "ล่าม", "ภาษา", "อังกฤษ", "จีน", "ญี่ปุ่น",
-    "ทำอาหาร", "ทำครัว", "เบเกอรี่",
-    "ปลูก", "เกษตร", "ต้นไม้", "ป่า", "ทะเล",
-    "ทำความสะอาด", "เก็บขยะ", "สิ่งแวดล้อม",
-    "ขับรถ", "ส่งของ", "โลจิสติกส์",
-    "โซเชียล", "PR", "ประชาสัมพันธ์", "การตลาด",
-    "ระยะสั้น", "ระยะยาว", "วันเดียว", "ค่าย", "อยู่ค่าย",
+    "หางานอาสา", "อยากทำจิตอาสา", "มีงานอาสาไหม", "แนะนำงานอาสา",
+    "กิจกรรมอาสา", "สมัครอาสา", "อยากช่วยสังคม",
 ]
 
-# คีย์เวิร์ดที่บ่งบอกว่าเป็นคำถามทั่วไป ไม่ต้องดึง context งาน
-# LLM ตอบจากความรู้ใน system prompt ได้เลย
+_SEARCH_EMBEDDINGS = None
+
+def get_search_embeddings():
+    global _SEARCH_EMBEDDINGS
+    if _SEARCH_EMBEDDINGS is None:
+        _SEARCH_EMBEDDINGS = np.vstack([embed_text(t) for t in SEARCH_KEYWORDS])
+    return _SEARCH_EMBEDDINGS
+
+
+# ===============================
+# GENERAL_KEYWORDS → vector search
+# ===============================
 GENERAL_KEYWORDS = [
-    # ทักทาย
-    "สวัสดี", "หวัดดี", "ดีจ้า", "hello", "hi", "ขอบคุณ", "บ๊ายบาย", "ลาก่อน",
-    # ถามเกี่ยวกับ AI / ตัวตน
-    "ชื่ออะไร", "คุณคือ", "เป็นใคร", "ทำอะไร",
-    # คำถามทั่วไปเกี่ยวกับจิตอาสา (ไม่ต้องค้นงาน)
-    "จิตอาสาคืออะไร", "อาสาสมัครคืออะไร", "ทำไมต้องทำ", "ประโยชน์",
-    "เริ่มยังไง", "เริ่มต้นยังไง", "มือใหม่", "ครั้งแรก",
-    "เตรียมตัวยังไง", "ต้องเตรียม", "ควรรู้อะไร",
-    "ต่างกันยังไง", "อาสากับ", "หมายความว่า",
-    "กลัว", "เหงา", "ไม่เคย", "ประสบการณ์", "ได้อะไร",
+    "สวัสดี", "คุณคือใคร", "จิตอาสาคืออะไร", "เริ่มทำอาสายังไง",
+    "ประโยชน์ของจิตอาสา", "ต้องเตรียมอะไร",
 ]
+
+_GENERAL_EMBEDDINGS = np.vstack([embed_text(t) for t in GENERAL_KEYWORDS])
+
+
+def is_general_intent(q: str, threshold=0.6):
+    q_vec = embed_text(q)
+    sims = cosine_similarity(q_vec, get_search_embeddings())[0]
+    return sims.max() > threshold
 
 
 def detect_intent(question: str, history: list) -> str:
@@ -274,7 +286,8 @@ def detect_intent(question: str, history: list) -> str:
     # ตรวจ history — ถ้าเคยคุยเรื่องงาน การตอบต่อก็น่าจะเกี่ยวกับงานด้วย
     if history:
         # รวม 8 เทิร์นล่าสุดของ user เข้าด้วยกัน
-        recent = " ".join([h.content for h in history[-8:] if h.role == "user"]).lower()
+        recent = " ".join([h.content for h in history[-8:]
+                          if h.role == "user"]).lower()
         for kw in SEARCH_KEYWORDS + ALL_PROVINCES:
             if kw in recent:
                 return "search"
@@ -318,7 +331,8 @@ def clean(text):
     text = str(text).strip().lower()
     for k, v in PROVINCE_ALIAS.items():
         text = text.replace(k.lower(), v.lower())
-    tokens = word_tokenize(text, engine="newmm")  # newmm = เร็วและแม่นยำสำหรับภาษาไทยทั่วไป
+    # newmm = เร็วและแม่นยำสำหรับภาษาไทยทั่วไป
+    tokens = word_tokenize(text, engine="newmm")
     tokens = [t for t in tokens if t.strip() and t not in stopwords]
     return " ".join(tokens)
 
@@ -370,7 +384,8 @@ def parse_event_end_date(date_str: str) -> date | None:
         return None
     try:
         # regex หาทุก pattern ที่เป็น "วัน เดือนภาษาไทย ปีพ.ศ." ใน string
-        pattern = r"(\d{1,2})\s+(" + "|".join(re.escape(m) for m in THAI_MONTHS) + r")\s+(\d{4})"
+        pattern = r"(\d{1,2})\s+(" + "|".join(re.escape(m)
+                                              for m in THAI_MONTHS) + r")\s+(\d{4})"
         matches = re.findall(pattern, date_str)
         if not matches:
             return None
@@ -426,7 +441,8 @@ def preprocess(df):
         "รายละเอียด": "detail",
     }
     for json_col, alias in col_map.items():
-        df[alias] = df[json_col].apply(normalize_text) if json_col in df.columns else "ไม่ระบุ"
+        df[alias] = df[json_col].apply(
+            normalize_text) if json_col in df.columns else "ไม่ระบุ"
 
     # แปลง cost: False/false/0/"ไม่ระบุ" → ฟรี, อื่นๆ → มีค่าใช้จ่าย
     if "มีค่าใช้จ่าย" in df.columns:
@@ -518,7 +534,8 @@ def build_vector(df):
             "cost": row.get("cost", "ไม่ระบุ"),
             "provinces": row.get("provinces", ""),
             "url": row.get("url", "ไม่ระบุ"),
-            "doc_type": "main",  # บอกว่าเป็น main doc (ใช้แยกจาก detail chunks)
+            # บอกว่าเป็น main doc (ใช้แยกจาก detail chunks)
+            "doc_type": "main",
         }
 
         # Main doc — 1 doc ต่อ 1 งาน
@@ -533,7 +550,8 @@ def build_vector(df):
             chunks = splitter.split_text(detail)
             for i, chunk in enumerate(chunks):
                 # copy metadata แล้วเปลี่ยน doc_type และเพิ่ม chunk_index
-                chunk_meta = {**metadata, "doc_type": "detail", "chunk_index": i}
+                chunk_meta = {**metadata,
+                              "doc_type": "detail", "chunk_index": i}
                 all_docs.append(Document(
                     page_content=chunk,
                     metadata=chunk_meta,
@@ -542,7 +560,7 @@ def build_vector(df):
     print(f"total docs (main + chunks) = {len(all_docs)}")
 
     # สร้าง embedding สำหรับทุก doc แล้วเก็บใน FAISS index
-    emb = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
+    emb = _embedding_model
     db = FAISS.from_documents(all_docs, emb)
     local_retriever = db.as_retriever(
         search_type="mmr",
@@ -607,43 +625,30 @@ def enhance_query(q):
 # mapping ทักษะที่ผู้ใช้บอก → keywords ที่ใช้กรองงานใน dataset
 # ทักษะ 1 อย่างอาจ match กับหลาย keyword เพื่อเพิ่มโอกาสเจองาน
 SKILL_KEYWORDS = {
-    "ก่อสร้าง":    ["ก่อสร้าง", "สร้าง", "ซ่อม", "ซ่อมแซม", "ช่าง", "ทาสี", "ปรับปรุง", "อาคาร"],
-    "ช่าง":        ["ช่าง", "ซ่อม", "ซ่อมแซม", "ก่อสร้าง", "ทาสี", "ติดตั้ง"],
-    "ถักผ้า":      ["ถัก", "ผ้า", "เย็บ", "ถักนิตติ้ง", "งานฝีมือ", "หัตถกรรม", "ประดิษฐ์"],
-    "ถักนิตติ้ง":  ["ถัก", "นิตติ้ง", "ผ้า", "เย็บ", "งานฝีมือ"],
-    "เย็บ":        ["เย็บ", "ผ้า", "ถัก", "งานฝีมือ"],
-    "งานฝีมือ":    ["ฝีมือ", "หัตถกรรม", "ประดิษฐ์", "ถัก", "เย็บ", "ทำมือ"],
-    "บริหาร":      ["จัดการ", "ประสานงาน", "อีเวนต์", "กิจกรรม", "จัดงาน", "โครงการ"],
-    "ประสานงาน":   ["ประสานงาน", "จัดการ", "อีเวนต์", "จัดงาน"],
-    "สอน":         ["สอน", "ติวเตอร์", "การศึกษา", "ครู", "เด็ก", "ค่าย"],
-    "ออกแบบ":      ["ออกแบบ", "กราฟิก", "ศิลปะ", "วาดรูป", "สื่อ"],
-    "ถ่ายภาพ":     ["ถ่ายภาพ", "ภาพ", "วิดีโอ", "สื่อ", "ตัดต่อ"],
-    "ดนตรี":       ["ดนตรี", "ร้องเพลง", "เพลง", "ดนตรีบำบัด"],
-    "กีฬา":        ["กีฬา", "ฟุตบอล", "วิ่ง", "กีฬาบำบัด", "เยาวชน"],
-    "ศิลปะ":       ["ศิลปะ", "วาดรูป", "เพ้นท์", "ระบายสี", "ออกแบบ"],
-    "แพทย์":       ["แพทย์", "พยาบาล", "สุขภาพ", "ปฐมพยาบาล", "สาธารณสุข"],
-    "พยาบาล":      ["พยาบาล", "แพทย์", "สุขภาพ", "ดูแลผู้ป่วย"],
-    "ทำอาหาร":     ["อาหาร", "ครัว", "เลี้ยงอาหาร", "ทำครัว"],
-    "เกษตร":       ["เกษตร", "ปลูก", "ต้นไม้", "ป่า", "สวน"],
-    "สิ่งแวดล้อม": ["สิ่งแวดล้อม", "ปลูกป่า", "ทำความสะอาด", "เก็บขยะ", "ทะเล"],
-    "IT":          ["IT", "คอมพิวเตอร์", "โปรแกรม", "เทคโนโลยี", "ดิจิทัล"],
-    "แปลภาษา":     ["แปล", "ล่าม", "ภาษา"],
-    "ขับรถ":       ["ขับรถ", "ส่งของ", "โลจิสติกส์", "รถ"],
+    "ก่อสร้าง": ["ก่อสร้าง", "ซ่อม", "ช่าง", "สร้างบ้าน"],
+    "สอน": ["สอน", "ติว", "ครู", "การศึกษา"],
+    "ออกแบบ": ["ออกแบบ", "กราฟิก", "วาดรูป"],
+    "แพทย์": ["แพทย์", "พยาบาล", "สุขภาพ"],
+    "IT": ["โปรแกรม", "คอมพิวเตอร์", "เทคโนโลยี"],
+}
+
+# embed ทุก skill keyword
+_SKILL_EMBEDDINGS = {
+    skill: np.vstack([embed_text(k) for k in kws])
+    for skill, kws in SKILL_KEYWORDS.items()
 }
 
 
-def detect_skill_keywords(q: str) -> list:
-    """
-    สกัด keywords จากทักษะที่ผู้ใช้พูดถึงใน query
-    ใช้กรองงานใน filter_docs ให้ตรงกับทักษะนั้นๆ
-    คืน list ของ keywords ที่ไม่ซ้ำ
-    """
-    q_lower = q.lower()
+def detect_skill_keywords(q: str, threshold=0.55) -> list:
+    q_vec = embed_text(q)
     result = []
-    for skill, kws in SKILL_KEYWORDS.items():
-        if skill in q_lower:
-            result.extend(kws)
-    return list(set(result))  # set() กัน keyword ซ้ำ (เช่น "ซ่อม" อาจอยู่ใน 2 ทักษะ)
+
+    for skill, vecs in _SKILL_EMBEDDINGS.items():
+        sims = cosine_similarity(q_vec, vecs)[0]
+        if sims.max() > threshold:
+            result.append(skill)
+
+    return result
 
 
 def filter_docs(found_docs, q, locked_province: str = None):
@@ -663,7 +668,8 @@ def filter_docs(found_docs, q, locked_province: str = None):
     want_free = "ฟรี" in q_norm or "ไม่เสียค่า" in q_norm or "ไม่มีค่า" in q_norm
 
     # คำที่บ่งบอกว่าต้องการงานออนไลน์
-    _online_want_kws = ["ออนไลน์", "ทำที่บ้าน", "work from home", "remote", "ทำออนไลน์", "อยู่บ้าน"]
+    _online_want_kws = ["ออนไลน์", "ทำที่บ้าน",
+                        "work from home", "remote", "ทำออนไลน์", "อยู่บ้าน"]
     want_online = any(k in q_norm for k in _online_want_kws)
 
     # คำที่บ่งบอกว่าไม่ต้องการงานออนไลน์ (อยากออกไปทำ onsite)
@@ -682,7 +688,8 @@ def filter_docs(found_docs, q, locked_province: str = None):
     want_region_provinces = [] if want_province else detect_region_in_query(q)
     # ดึง skill keywords สำหรับ filter เพิ่มเติม
     skill_kws = detect_skill_keywords(q)
-    online_keywords = ["ออนไลน์", "online", "remote", "ทำที่บ้าน", "work from home"]
+    online_keywords = ["ออนไลน์", "online",
+                       "remote", "ทำที่บ้าน", "work from home"]
     today = datetime.now().date()
 
     # MODE 1: มีจังหวัดหรือภาค → scan global docs ทั้งหมดกรองตามพื้นที่
@@ -690,7 +697,8 @@ def filter_docs(found_docs, q, locked_province: str = None):
         global docs
         results = []
         # สร้าง list จังหวัดที่ต้องการ (lowercase สำหรับ string comparison)
-        filter_provinces = [want_province.lower()] if want_province else [p.lower() for p in want_region_provinces]
+        filter_provinces = [want_province.lower()] if want_province else [
+            p.lower() for p in want_region_provinces]
         for d in docs:
             # ตรวจเฉพาะ main doc เพื่อกัน duplicate จาก detail chunks
             if d.metadata.get("doc_type") != "main":
@@ -725,7 +733,8 @@ def filter_docs(found_docs, q, locked_province: str = None):
     # MODE 2: มี hard filter (ออนไลน์/ไม่ออนไลน์/ฟรี) → scan global docs ทั้งหมด
     # เหตุผล: vector search อาจคืน docs ที่ตรงกับ query แต่ไม่ผ่าน hard filter
     # ถ้า filter จาก found_docs อย่างเดียว อาจเหลือ 0 docs ทั้งที่มีงานใน docs จริงๆ
-    search_pool = docs if (want_not_online or want_online or want_free) else found_docs
+    search_pool = docs if (
+        want_not_online or want_online or want_free) else found_docs
 
     result = []
     for d in search_pool:
@@ -1012,7 +1021,8 @@ async def groq_stream_generator(question: str, context: str, history: list):
                 ) as r:
                     # 429 = rate limit, 401 = key หมด/ไม่ valid → สลับ key
                     if r.status_code in (429, 401):
-                        print(f"[GROQ] key #{_current_key_index + 1} ถูก block ({r.status_code}) → สลับ key")
+                        print(
+                            f"[GROQ] key #{_current_key_index + 1} ถูก block ({r.status_code}) → สลับ key")
                         get_next_groq_key()
                         tried += 1
                         continue
@@ -1026,7 +1036,8 @@ async def groq_stream_generator(question: str, context: str, history: list):
                             try:
                                 chunk = json.loads(payload)
                                 # delta.content คือ text ที่ generate มาในก้าวนี้
-                                text = chunk["choices"][0]["delta"].get("content", "")
+                                text = chunk["choices"][0]["delta"].get(
+                                    "content", "")
                                 if text:
                                     yield text  # ส่งออกทีละ chunk ทันที
                             except Exception:
@@ -1034,13 +1045,15 @@ async def groq_stream_generator(question: str, context: str, history: list):
                     return  # stream จบสมบูรณ์ ออกจาก while loop
         except httpx.HTTPStatusError as e:
             if e.response.status_code in (429, 401):
-                print(f"[GROQ] key #{_current_key_index + 1} error {e.response.status_code} → สลับ key")
+                print(
+                    f"[GROQ] key #{_current_key_index + 1} error {e.response.status_code} → สลับ key")
                 get_next_groq_key()
                 tried += 1
                 last_error = e
             else:
                 raise  # error อื่น (เช่น 500) → ปล่อยขึ้นไป handle ข้างบน
-    raise RuntimeError(f"GROQ keys ทุกตัวถูก rate limit หรือใช้ไม่ได้: {last_error}")
+    raise RuntimeError(
+        f"GROQ keys ทุกตัวถูก rate limit หรือใช้ไม่ได้: {last_error}")
 
 
 def extract_province_from_history(history: list) -> str | None:
@@ -1080,7 +1093,8 @@ def ask_rag(question: str, history: list = None) -> tuple[str, list]:
 
     # ตรวจจังหวัดจากคำถามปัจจุบัน ถ้าไม่มีให้ดูจาก history
     current_province = detect_province_in_query(question)
-    locked_province = current_province or extract_province_from_history(history or [])
+    locked_province = current_province or extract_province_from_history(
+        history or [])
     print(f"province: current={current_province}, locked={locked_province}")
 
     if locked_province:
@@ -1099,7 +1113,8 @@ def ask_rag(question: str, history: list = None) -> tuple[str, list]:
 
         query = enhance_query(context_query)  # normalize + เพิ่ม synonym
         found = retriever.invoke(query)       # FAISS MMR search
-        print(f"question={question}, enhanced={query}, before filter={len(found)}")
+        print(
+            f"question={question}, enhanced={query}, before filter={len(found)}")
         found = filter_docs(found, context_query)
 
     found = deduplicate_docs(found)
@@ -1173,7 +1188,8 @@ async def ask_api(data: QuestionRequest):
         print(f"[DEBUG] history len={len(history)}")
         for i, h in enumerate(history):
             # [:60] กัน log ยาวเกิน แสดงแค่ 60 ตัวแรก
-            print(f"[DEBUG]   history[{i}] role={h.role!r} content={h.content[:60]!r}")
+            print(
+                f"[DEBUG]   history[{i}] role={h.role!r} content={h.content[:60]!r}")
 
         context, _ = ask_rag(data.question, history)
 
