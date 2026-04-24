@@ -24,7 +24,6 @@ exports.register = async (req, res) => {
       });
     }
 
-    // hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const user = new User({
@@ -58,7 +57,6 @@ exports.login = async (req, res) => {
       });
     }
 
-    // compare password
     const isMatch = await bcrypt.compare(password, user.password);
 
     if (!isMatch) {
@@ -68,10 +66,10 @@ exports.login = async (req, res) => {
       });
     }
 
-    // create token
+    // ✅ ใช้ process.env.JWT_SECRET แทน hardcode
     const token = jwt.sign(
       { id: user._id, username: user.username },
-      "secretkey", // เปลี่ยนเป็น process.env.JWT_SECRET ทีหลัง
+      process.env.JWT_SECRET || "secretkey",
       { expiresIn: "1d" },
     );
 

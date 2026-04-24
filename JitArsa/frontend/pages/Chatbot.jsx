@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import Sidebar from "../components/Sidebar";
 
 export default function Chatbot() {
-  const [screen, setScreen] = useState("splash");
+  const [screen, setScreen] = useState(() => sessionStorage.getItem("jp_screen") || "splash");
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -10,6 +10,32 @@ export default function Chatbot() {
   const [mounted, setMounted] = useState(false);
   const usernameRef = useRef(null);
   const isEmpty = messages.length === 0;
+  // ✅ persist sessionId ใน sessionStorage — F5 ยังคง session เดิม
+  const sessionIdRef = useRef(
+    sessionStorage.getItem("jp_session_id") || (() => {
+      const id = crypto.randomUUID();
+      sessionStorage.setItem("jp_session_id", id);
+      return id;
+    })()
+  );
+  const refreshHistoryRef = useRef(null); // ref เก็บ fetchHistory จาก Sidebar
+
+  // ✅ New Chat — reset ข้อความ + สร้าง sessionId ใหม่
+  const resetChat = useCallback(() => {
+    setMessages([]);
+    setInput("");
+    setLoading(false);
+    const newId = crypto.randomUUID();
+    sessionIdRef.current = newId;
+    sessionStorage.setItem("jp_session_id", newId); // ✅ เก็บ session ใหม่
+    sessionStorage.setItem("jp_screen", "chat");
+    setScreen("chat");
+  }, []);
+
+  // ✅ stable callback กัน re-render loop
+  const onRegisterRefreshCallback = useCallback((fn) => {
+    refreshHistoryRef.current = fn;
+  }, []);
 
   useEffect(() => {
     setMounted(true);
@@ -65,11 +91,14 @@ export default function Chatbot() {
     ]);
 
     try {
+      const token = localStorage.getItem("jp_token");
       const res = await fetch("/ask-pha", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        // ✅ ส่ง history จริงๆ แทน []
-        body: JSON.stringify({ question, history }),
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ question, history, sessionId: sessionIdRef.current }),
       });
 
       if (!res.ok) throw new Error(`Server error: ${res.status}`);
@@ -101,6 +130,8 @@ export default function Chatbot() {
             : m,
         ),
       );
+      // ✅ refresh sidebar หลัง AI ตอบจบ
+      if (refreshHistoryRef.current) refreshHistoryRef.current();
     } catch (err) {
       console.error("Fetch Error:", err);
       setMessages((prev) => [
@@ -399,7 +430,7 @@ export default function Chatbot() {
             background: "var(--mist)",
             fontFamily: "'Noto Sans Thai', sans-serif",
           }}
-          onClick={() => setScreen("chat")}
+          onClick={() => { setScreen("chat"); sessionStorage.setItem("jp_screen", "chat"); }}
         >
           <div className="relative">
             <img
@@ -436,7 +467,7 @@ export default function Chatbot() {
             }}
             onClick={(e) => {
               e.stopPropagation();
-              setScreen("chat");
+              setScreen("chat"); sessionStorage.setItem("jp_screen", "chat");
             }}
           >
             มาเริ่มคุยกับภากันเถอะ !
@@ -450,7 +481,7 @@ export default function Chatbot() {
           className="flex h-screen"
           style={{ fontFamily: "'Noto Sans Thai', sans-serif" }}
         >
-          <Sidebar />
+          <Sidebar onNewChat={resetChat} onRegisterRefresh={onRegisterRefreshCallback} />
 
           <div
             className="flex flex-col flex-1 relative"

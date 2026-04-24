@@ -8,6 +8,7 @@ import httpx
 import re
 from datetime import datetime, date
 from dotenv import load_dotenv
+import itertools
 
 load_dotenv()
 
@@ -57,7 +58,25 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATASET_PATH = os.path.join(BASE_DIR, "data/jitarsa.json")
 EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+# ✅ Key rotation — วนไปเรื่อยๆ เมื่อ key ไหนหมด/rate limit สลับไปตัวถัดไปอัตโนมัติ
+_RAW_KEYS = os.environ.get("GROQ_API_KEYS", os.environ.get("GROQ_API_KEY", ""))
+GROQ_API_KEYS = [k.strip() for k in _RAW_KEYS.split(",") if k.strip()]
+if not GROQ_API_KEYS:
+    raise RuntimeError("ไม่พบ GROQ_API_KEY ใน .env")
+_key_cycle = itertools.cycle(GROQ_API_KEYS)
+_current_key_index = 0
+
+def get_next_groq_key() -> str:
+    """เลือก key ถัดไปในวงจร"""
+    global _current_key_index
+    _current_key_index = (_current_key_index + 1) % len(GROQ_API_KEYS)
+    key = GROQ_API_KEYS[_current_key_index]
+    print(f"[GROQ] สลับไปใช้ key #{_current_key_index + 1} (****{key[-6:]})")
+    return key
+
+def get_current_groq_key() -> str:
+    return GROQ_API_KEYS[_current_key_index]
+
 GROQ_MODEL = "llama-3.3-70b-versatile"
 GROQ_TIMEOUT = 60
 
@@ -79,6 +98,27 @@ PROVINCE_ALIAS = {
     "bkk": "กรุงเทพ",
     "โคราช": "นครราชสีมา",
     "อยุธยา": "พระนครศรีอยุธยา",
+}
+
+# ✅ mapping ภาค/โซน → รายชื่อจังหวัด
+REGION_MAP = {
+    "เหนือ":    ["เชียงใหม่","เชียงราย","ลำปาง","ลำพูน","แม่ฮ่องสอน","พะเยา","แพร่","น่าน","อุตรดิตถ์","ตาก","สุโขทัย","พิษณุโลก","พิจิตร","กำแพงเพชร","เพชรบูรณ์"],
+    "ใต้":      ["สงขลา","สุราษฎร์ธานี","นครศรีธรรมราช","ภูเก็ต","กระบี่","พังงา","ตรัง","พัทลุง","สตูล","ระนอง","ปัตตานี","ยะลา","นราธิวาส","ชุมพร"],
+    "กลาง":     ["กรุงเทพ","นนทบุรี","ปทุมธานี","สมุทรปราการ","สมุทรสาคร","สมุทรสงคราม","นครปฐม","สุพรรณบุรี","กาญจนบุรี","ราชบุรี","เพชรบุรี","ประจวบคีรีขันธ์","อยุธยา","อ่างทอง","สิงห์บุรี","ชัยนาท","ลพบุรี","สระบุรี","นครนายก","ปราจีนบุรี"],
+    "ออก":      ["ชลบุรี","ระยอง","จันทบุรี","ตราด","ฉะเชิงเทรา","สระแก้ว"],
+    "ตะวันออก": ["ชลบุรี","ระยอง","จันทบุรี","ตราด","ฉะเชิงเทรา","สระแก้ว"],
+    "อีสาน":    ["นครราชสีมา","ขอนแก่น","อุดรธานี","อุบลราชธานี","บุรีรัมย์","สุรินทร์","ศรีสะเกษ","มหาสารคาม","ร้อยเอ็ด","กาฬสินธุ์","สกลนคร","นครพนม","มุกดาหาร","อำนาจเจริญ","ยโสธร","ชัยภูมิ","เลย","หนองคาย","หนองบัวลำภู","บึงกาฬ","อุทัยธานี"],
+    "อีสานเหนือ": ["อุดรธานี","หนองคาย","บึงกาฬ","นครพนม","สกลนคร","มุกดาหาร","หนองบัวลำภู","เลย"],
+    "ตะวันตก":  ["กาญจนบุรี","ราชบุรี","เพชรบุรี","ประจวบคีรีขันธ์","ตาก"],
+}
+# alias สำหรับคำพูดปกติ → ชื่อ key ใน REGION_MAP
+REGION_ALIAS = {
+    "ภาคเหนือ": "เหนือ", "โซนเหนือ": "เหนือ", "แถบเหนือ": "เหนือ", "ทางเหนือ": "เหนือ",
+    "ภาคใต้": "ใต้", "โซนใต้": "ใต้", "แถบใต้": "ใต้", "ทางใต้": "ใต้",
+    "ภาคกลาง": "กลาง", "โซนกลาง": "กลาง", "แถบกลาง": "กลาง",
+    "ภาคตะวันออก": "ออก", "ภาคออก": "ออก", "โซนออก": "ออก", "อีสเทิร์น": "ออก", "อีสเทอร์น": "ออก",
+    "ภาคอีสาน": "อีสาน", "โซนอีสาน": "อีสาน", "ภาคตะวันออกเฉียงเหนือ": "อีสาน", "ทางอีสาน": "อีสาน",
+    "ภาคตะวันตก": "ตะวันตก", "โซนตะวันตก": "ตะวันตก",
 }
 
 ALL_PROVINCES = [
@@ -151,6 +191,9 @@ def detect_intent(question: str, history: list) -> str:
 
     # ตรวจ province ก่อน → ถ้าระบุจังหวัดมา = search แน่ๆ
     if detect_province_in_query(question):
+        return "search"
+    # ✅ ตรวจภาค/โซน
+    if detect_region_in_query(question):
         return "search"
 
     # ตรวจ general keywords
@@ -374,11 +417,25 @@ def build_vector(df):
     return all_docs, local_retriever
 
 
+def detect_region_in_query(q: str):
+    """คืนค่า list of provinces ถ้าพบคำบอกภาค/โซน"""
+    q_lower = q.lower().strip()
+    # ตรวจ alias ก่อน (เช่น "ภาคเหนือ", "โซนใต้")
+    for alias, region_key in REGION_ALIAS.items():
+        if alias in q_lower:
+            return REGION_MAP.get(region_key, [])
+    # ตรวจชื่อ region โดยตรง (เช่น "เหนือ", "ใต้")
+    for region_key, provinces in REGION_MAP.items():
+        if region_key in q_lower:
+            return provinces
+    return []
+
 def detect_province_in_query(q: str):
     q_norm = normalize_text(q)
     for prov in ALL_PROVINCES:
         if prov in q_norm:
             return PROVINCE_ALIAS.get(prov, prov)
+    # ✅ ตรวจภาค/โซน → คืนจังหวัดแรกในภาคนั้น (ใช้ filter_docs_by_region แทน)
     return None
 
 
@@ -404,17 +461,19 @@ def filter_docs(found_docs, q, locked_province: str = None):
     want_online = "ออนไลน์" in q_norm or "ทำที่บ้าน" in q_norm
     want_not_online = "ไม่ออนไลน์" in q_norm or "ออนไซต์" in q_norm
     want_province = locked_province or detect_province_in_query(q)
+    # ✅ ถ้าไม่มีจังหวัดเดี่ยว ให้ลองดึงจากภาค/โซน
+    want_region_provinces = [] if want_province else detect_region_in_query(q)
     online_keywords = ["ออนไลน์", "online", "remote", "ทำที่บ้าน", "work from home"]
     today = datetime.now().date()
 
-    if want_province:
+    if want_province or want_region_provinces:
         global docs
         results = []
+        filter_provinces = [want_province.lower()] if want_province else [p.lower() for p in want_region_provinces]
         for d in docs:
             if d.metadata.get("doc_type") != "main":
                 continue
             md = d.metadata
-            # กรองงานหมดอายุ
             if is_expired(md.get("date", ""), today):
                 continue
             merged = " ".join([
@@ -423,7 +482,8 @@ def filter_docs(found_docs, q, locked_province: str = None):
                 str(md.get("title", "")),
                 (d.page_content or ""),
             ]).lower()
-            if want_province.lower() not in merged:
+            # ✅ ตรวจว่า merged มีจังหวัดใดจังหวัดหนึ่งในรายการ
+            if not any(p in merged for p in filter_provinces):
                 continue
             is_free = "ไม่เสียค่าใช้จ่าย" in str(md.get("cost", "")).lower()
             is_online = any(k in merged for k in online_keywords)
@@ -434,7 +494,8 @@ def filter_docs(found_docs, q, locked_province: str = None):
             if want_not_online and is_online:
                 continue
             results.append(d)
-        print(f"พบงานใน {want_province} (ไม่หมดอายุ) = {len(results)} งาน")
+        label = want_province if want_province else f"ภาค ({len(want_region_provinces)} จังหวัด)"
+        print(f"พบงานใน {label} (ไม่หมดอายุ) = {len(results)} งาน")
         return results
 
     result = []
@@ -516,6 +577,14 @@ SYSTEM_PERSONA = """
 5. ถ้าคำถามไม่เกี่ยวกับงานอาสา → ปฏิเสธสุภาพ 1 ประโยค แล้วชวนกลับเรื่องงาน
 6. จำบริบทจาก history เสมอ — ถ้าผู้ใช้บอกพื้นที่/แนวงานไปแล้ว ห้ามถามซ้ำ
 
+=== ความเข้าใจพื้นที่ ===
+- "โซน" = "ภาค" เช่น โซนเหนือ = ภาคเหนือ, โซนใต้ = ภาคใต้
+- ภาคเหนือ: เชียงใหม่ เชียงราย ลำปาง ลำพูน แม่ฮ่องสอน พะเยา แพร่ น่าน ฯลฯ
+- ภาคใต้: สงขลา สุราษฎร์ธานี นครศรีธรรมราช ภูเก็ต กระบี่ ฯลฯ
+- ภาคอีสาน: นครราชสีมา ขอนแก่น อุดรธานี อุบลราชธานี ฯลฯ
+- ภาคกลาง: กรุงเทพ นนทบุรี ปทุมธานี อยุธยา ฯลฯ
+- ภาคตะวันออก: ชลบุรี ระยอง จันทบุรี ตราด ฯลฯ
+
 === การค้นหางาน ===
 - คำถามกว้าง (ไม่ระบุแนวหรือพื้นที่) → ถามกลับ 1 คำถามก่อน ห้ามแสดงงานทันที
 - คำถามชัดเจน (ระบุแนว + พื้นที่ หรือระบุอย่างใดอย่างหนึ่งชัดๆ) → แสดงงานได้เลย ไม่เกิน 5 งาน
@@ -569,36 +638,58 @@ def build_groq_messages(question: str, context: str, history: list) -> list:
 
 async def groq_stream_generator(question: str, context: str, history: list):
     messages = build_groq_messages(question, context, history)
-    
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json",
-    }
     body = {
         "model": GROQ_MODEL,
         "messages": messages,
         "max_tokens": 600,
-        "temperature": 0.5,   # ลด temperature → ตอบมั่วน้อยลง
+        "temperature": 0.5,
         "stream": True,
     }
-    async with httpx.AsyncClient(timeout=GROQ_TIMEOUT) as client:
-        async with client.stream(
-            "POST", "https://api.groq.com/openai/v1/chat/completions",
-            headers=headers, json=body
-        ) as r:
-            r.raise_for_status()
-            async for line in r.aiter_lines():
-                if line.startswith("data:"):
-                    payload = line[5:].strip()
-                    if not payload or payload == "[DONE]":
+
+    # ✅ ลองแต่ละ key ได้สูงสุด len(GROQ_API_KEYS) ครั้ง
+    tried = 0
+    last_error = None
+    while tried < len(GROQ_API_KEYS):
+        api_key = get_current_groq_key()
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=GROQ_TIMEOUT) as client:
+                async with client.stream(
+                    "POST", "https://api.groq.com/openai/v1/chat/completions",
+                    headers=headers, json=body
+                ) as r:
+                    # 429 = rate limit, 401 = key หมด/ไม่ valid → สลับ key
+                    if r.status_code in (429, 401):
+                        print(f"[GROQ] key #{_current_key_index + 1} ถูก block ({r.status_code}) → สลับ key")
+                        get_next_groq_key()
+                        tried += 1
                         continue
-                    try:
-                        chunk = json.loads(payload)
-                        text = chunk["choices"][0]["delta"].get("content", "")
-                        if text:
-                            yield text
-                    except Exception:
-                        continue
+                    r.raise_for_status()
+                    async for line in r.aiter_lines():
+                        if line.startswith("data:"):
+                            payload = line[5:].strip()
+                            if not payload or payload == "[DONE]":
+                                continue
+                            try:
+                                chunk = json.loads(payload)
+                                text = chunk["choices"][0]["delta"].get("content", "")
+                                if text:
+                                    yield text
+                            except Exception:
+                                continue
+                    return  # สำเร็จ ออกจาก loop
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in (429, 401):
+                print(f"[GROQ] key #{_current_key_index + 1} error {e.response.status_code} → สลับ key")
+                get_next_groq_key()
+                tried += 1
+                last_error = e
+            else:
+                raise
+    raise RuntimeError(f"GROQ keys ทุกตัวถูก rate limit หรือใช้ไม่ได้: {last_error}")
 
 
 def extract_province_from_history(history: list) -> str | None:
