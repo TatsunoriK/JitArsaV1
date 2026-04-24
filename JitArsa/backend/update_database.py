@@ -91,6 +91,14 @@ async def scrape_detail(page, url: str) -> dict | None:
     เปิดหน้างานแต่ละหน้า แล้ว extract ข้อมูลออกมา
     ใช้ text-based parsing (inner_text) แทน HTML parsing
     เพราะ layout อาจเปลี่ยนได้ แต่ text content คงที่กว่า
+
+    โครงสร้าง inner_text ของแต่ละหน้างาน (สม่ำเสมอ):
+      บรรทัด 0 : ชื่อกิจกรรม  ← lines[0]
+      บรรทัด 1 : ชื่อองค์กร   ← lines[1]  (FIX: ดึงตำแหน่งแทน keyword scan)
+      บรรทัด 2 : วันที่-เวลา  ← lines[2]  (FIX: ดึงตำแหน่งแทน regex ที่พลาด)
+      บรรทัด 3 : สถานที่ (อาจมีคำว่า "(แผนที่)" ต่อท้าย)  ← lines[3]
+      ...        เนื้อหาอื่นๆ
+
     คืน dict ของข้อมูลงาน หรือ None ถ้าโหลด/parse ไม่ได้
     """
     try:
@@ -118,12 +126,59 @@ async def scrape_detail(page, url: str) -> dict | None:
         if not lines:
             return None
 
-        # --- parse fields จาก text lines ---
-        # บรรทัดแรก = ชื่อกิจกรรม (ปกติ header ของหน้า)
-        title   = lines[0]
-        org     = ""
-        date    = ""
-        loc     = ""
+        # ─── FIX: ดึง org / date / location จากตำแหน่งคงที่ใน detail block ───
+        # หน้างานของ jitarsabank มีโครงสร้าง inner_text ที่สม่ำเสมอ:
+        # [0] ชื่องาน → title
+        # [1] ชื่อองค์กร → org   (เดิม: scan หา "โดย" → ชนกับบรรทัดเกียรติบัตร)
+        # [2] วันที่-เวลา → date  (เดิม: regex เดือนย่อพลาดบางรูปแบบ)
+        # [3] สถานที่ (อาจมี "(แผนที่)" ต่อท้าย) → loc
+        # การดึงตามตำแหน่งแม่นกว่า keyword scan สำหรับโครงสร้างที่แน่นอน
+
+        title = lines[0]
+
+        # org = บรรทัดที่ 1 ถ้ามีอยู่ และไม่ได้เป็นวันที่หรือ keyword อื่น
+        # fallback ไปใช้ keyword scan เดิม ถ้าโครงสร้างผิดปกติ
+        org = ""
+        if len(lines) > 1:
+            candidate = lines[1]
+            # ถ้าบรรทัดที่ 1 ไม่ใช่วันที่ (ไม่มี HH:MM) = org
+            if not re.search(r"\d{1,2}:\d{2}", candidate):
+                org = candidate
+            else:
+                # โครงสร้างผิดปกติ → fallback keyword scan (เฉพาะ "องค์กร:" เท่านั้น ไม่ใช้ "โดย")
+                for line in lines:
+                    if "องค์กร" in line and ":" in line:
+                        org = line.split(":")[-1].strip()
+                        break
+
+        # date = บรรทัดแรกที่มี HH:MM + เดือนภาษาไทย (ค้นหาจาก lines[1] เป็นต้นไป)
+        # FIX: เพิ่ม pattern เดือนเต็ม (พฤษภาคม ฯลฯ) นอกจากเดือนย่อ
+        date = ""
+        _month_pattern = (
+            r"(ม\.ค\.|ก\.พ\.|มี\.ค\.|เม\.ย\.|พ\.ค\.|มิ\.ย\.|ก\.ค\.|ส\.ค\.|"
+            r"ก\.ย\.|ต\.ค\.|พ\.ย\.|ธ\.ค\.|"
+            r"มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|"
+            r"กรกฎาคม|สิงหาคม|กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม)"
+        )
+        for line in lines[1:]:
+            if re.search(r"\d{1,2}:\d{2}", line) and re.search(_month_pattern, line):
+                date = line
+                break  # เจอบรรทัดแรกที่ตรงเงื่อนไข → หยุด
+
+        # loc = บรรทัดที่มีคำว่า "(แผนที่)" ซึ่งเป็น pattern เฉพาะของ jitarsabank
+        # หรือ fallback เป็นบรรทัดที่ 3 ถ้าไม่เจอ "(แผนที่)"
+        loc = ""
+        for line in lines[1:]:
+            if "(แผนที่)" in line:
+                # ลบ " (แผนที่)" ออก เก็บแค่ชื่อสถานที่
+                loc = line.replace("(แผนที่)", "").strip()
+                break
+        if not loc and len(lines) > 3:
+            # fallback: บรรทัดที่ 3 (หลัง title/org/date) มักเป็นสถานที่
+            loc = lines[3]
+        # ─────────────────────────────────────────────────────────────────
+
+        # fields อื่นๆ ยังใช้ keyword scan เหมือนเดิม (ไม่มีตำแหน่งคงที่)
         cost    = ""
         phone   = ""
         email_  = ""
@@ -132,13 +187,7 @@ async def scrape_detail(page, url: str) -> dict | None:
 
         for line in lines:
             ll = line.lower()
-            if "องค์กร" in ll or "โดย" in ll:
-                # ดึงข้อความหลัง ":" ถ้ามี ไม่งั้นใช้ทั้ง line
-                org = line.split(":")[-1].strip() if ":" in line else line
-            elif re.search(r"\d{1,2}:\d{2}", line) and re.search(r"(ม.ค\.|ก.พ\.|มี.ค\.|เม.ย\.|พ.ค\.|มิ.ย\.|ก.ค\.|ส.ค\.|ก.ย\.|ต.ค\.|พ.ย\.|ธ.ค\.)", line):
-                # line ที่มีเวลา (HH:MM) และชื่อเดือนย่อ = บรรทัดวันที่
-                date = line
-            elif "ค่าใช้จ่าย" in ll or "ฟรี" in ll or "ไม่มีค่า" in ll:
+            if "ค่าใช้จ่าย" in ll or "ฟรี" in ll or "ไม่มีค่า" in ll:
                 cost = "ไม่เสียค่าใช้จ่าย" if any(k in ll for k in ["ฟรี","ไม่มีค่า","ไม่เสีย"]) else "มีค่าใช้จ่าย"
             elif "ที่นั่งสมัครแล้ว" in ll:
                 nums = re.findall(r"\d+", line)
@@ -149,12 +198,13 @@ async def scrape_detail(page, url: str) -> dict | None:
             elif re.match(r"0[0-9]{8,9}$", line.strip()):
                 # เบอร์โทรไทย: ขึ้นต้นด้วย 0 ตามด้วยเลข 8-9 หลัก
                 phone = line.strip()
-            elif "@" in line and "." in line:
+            elif "@" in line and "." in line and "อีเมล" not in line:
                 # email: มีทั้ง @ และ . ในบรรทัดเดียว
+                # ยกเว้นบรรทัดที่ขึ้นต้นด้วย "อีเมล:" (จะ parse แยก)
                 email_ = line.strip()
-            elif any(k in ll for k in ["กรุงเทพ","เชียงใหม่","สงขลา","ทำที่บ้าน","ออนไลน์"]) and not loc:
-                # บรรทัดแรกที่มีชื่อจังหวัดหรือ keyword สถานที่
-                loc = line
+            elif line.startswith("อีเมล") and ":" in line:
+                # FIX: บาง record มี "อีเมล: xxx@xxx" → ดึงเฉพาะ address
+                email_ = line.split(":", 1)[-1].strip()
 
         # รายละเอียดทั้งหมด = ทุก line หลังชื่อกิจกรรม
         detail = "\n".join(lines[1:])
