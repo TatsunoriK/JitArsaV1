@@ -13,6 +13,10 @@ ollama serve
 
 python -m uvicorn main:app --reload
 
+python update_database.py
+
+python scheduler.py
+
 login
 aam
 123
