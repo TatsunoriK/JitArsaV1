@@ -113,7 +113,7 @@ function Sidebar({ onNewChat, onRegisterRefresh }) {
 
         {/* Header */}
         <div className="flex items-center gap-2 mb-3">
-          <img src="/girl.png" alt="bot" className="w-8 h-8 rounded-full object-cover border-2 border-[#ACB1D6]/40" />
+          <img src="/IMG_5528.PNG" alt="bot" className="w-12 h-12 rounded-full object-cover border-2 border-[#ACB1D6]/40" />
           <h4 className="text-sm font-semibold" style={{ color: "#185fa5" }}>Nop Napha</h4>
         </div>
 

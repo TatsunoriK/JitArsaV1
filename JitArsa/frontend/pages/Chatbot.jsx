@@ -504,9 +504,9 @@ export default function Chatbot() {
                   }}
                 >
                   <img
-                    src="/girl.png"
+                    src="/IMG_5529.PNG"
                     alt="bot"
-                    className="w-20 h-20 rounded-full mx-auto mb-4 border-4 shadow"
+                    className="w-30 h-30 rounded-full mx-auto mb-4 border-4 shadow"
                     style={{ borderColor: "var(--mist)" }}
                   />
 
@@ -564,7 +564,7 @@ export default function Chatbot() {
                       {msg.role === "bot" && (
                         <div className="w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center">
                           <img
-                            src="/girl.png"
+                            src="/IMG_5529.PNG"
                             alt="bot"
                             className="w-full h-full rounded-full object-cover"
                           />
@@ -606,7 +606,7 @@ export default function Chatbot() {
                     <div className="flex items-end gap-2">
                       <div className="w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center">
                         <img
-                          src="/girl.png"
+                          src="/IMG_5529.PNG"
                           alt="bot"
                           className="w-full h-full rounded-full object-cover "
                         />
