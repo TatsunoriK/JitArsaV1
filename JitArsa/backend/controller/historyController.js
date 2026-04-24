@@ -1,10 +1,32 @@
 const ChatSessions = require("../models/ChatSessionsSchema.js");
 const ChatMessages = require("../models/ChatMessagesSchema.js");
+const jwt = require("jsonwebtoken");
 
-// GET ALL SESSIONS
+// helper: ดึง user_id จาก Authorization header
+function getUserIdFromReq(req) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) return null;
+  try {
+    const decoded = jwt.verify(
+      authHeader.slice(7),
+      process.env.JWT_SECRET || "secretkey"
+    );
+    return decoded.id;
+  } catch (_) {
+    return null;
+  }
+}
+
+// GET SESSIONS ของ user คนนี้เท่านั้น
 exports.getChatHistory = async (req, res) => {
   try {
-    const history = await ChatSessions.find()
+    const user_id = getUserIdFromReq(req);
+    if (!user_id) {
+      return res.status(401).json({ success: false, message: "กรุณา login ก่อน" });
+    }
+
+    // ✅ filter ตาม user_id
+    const history = await ChatSessions.find({ user_id })
       .sort({ updated_at: -1 })
       .select("title updated_at created_at");
 
@@ -19,7 +41,6 @@ exports.getChatHistory = async (req, res) => {
 exports.getChatMessages = async (req, res) => {
   try {
     const { sessionId } = req.params;
-    // ✅ ใช้ session_id (ตรงกับ schema)
     const messages = await ChatMessages.find({ session_id: sessionId })
       .sort({ timestamp: 1 });
 
