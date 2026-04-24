@@ -867,6 +867,24 @@ def root():
     return {"message": "JitArsa backend is running"}
 
 
+@app.post("/reload-data")
+def reload_data():
+    """
+    เรียกจาก update_database.py หลัง scrape เสร็จ
+    → โหลด jitarsa.json ใหม่ + rebuild FAISS vector
+    """
+    global docs, retriever
+    try:
+        df = preprocess(load_data(DATASET_PATH))
+        docs, retriever = build_vector(df)
+        total = len(df)
+        print(f"[RELOAD] rebuild vector เสร็จ — {total} รายการ")
+        return {"success": True, "total": total}
+    except Exception as e:
+        print(f"[RELOAD ERROR] {e}")
+        return {"success": False, "error": str(e)}
+
+
 @app.post("/ask-pha")
 async def ask_api(data: QuestionRequest):
     try:
